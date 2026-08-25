@@ -475,6 +475,7 @@ const settings = {
   // this app has always had. At least one is always on; see load().
   modes: { stopwatch: true, timer: true, pomodoro: true, clock: false },
   clockTz: '',        // '' = this device. Otherwise a key into tzMap.
+  bgRun: true,        // leaving a mode lets its clock carry on
   clockDate: true,
   notifications: false,
   customCSS: '',
@@ -709,6 +710,7 @@ function load() {
   if (!enabledModes().length) settings.modes.stopwatch = true;
   if (!tzMap[settings.clockTz]) settings.clockTz = '';
   settings.clockDate = !!settings.clockDate;
+  settings.bgRun = settings.bgRun !== false;
   const clamp = (v, lo, hi, dflt) => { const n = +v; return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
   settings.clockScale = clamp(settings.clockScale, 60, 130, 100);
   settings.uiScale = clamp(settings.uiScale, 85, 125, 100);
@@ -877,6 +879,7 @@ function updateUI() {
     // The one remaining mode reads as locked rather than simply not responding
     t.classList.toggle('locked', soleMode && settings.modes[m]);
   });
+  $('bgRunToggle').classList.toggle('active', settings.bgRun);
   $('clockOffNote').style.display = settings.modes.clock ? 'none' : '';
   document.querySelectorAll('#tzGrid .clock-opt').forEach(o =>
     o.classList.toggle('active', o.dataset.tz === settings.clockTz));
@@ -1158,6 +1161,15 @@ function bindEvents() {
       apply();
     };
   });
+  $('bgRunToggle').onclick = () => {
+    settings.bgRun = !settings.bgRun;
+    // Turning it off has to reach the runs already counting in the background,
+    // or the setting only governs the next switch and the current ones keep
+    // going in defiance of it.
+    if (!settings.bgRun) Object.keys(runState).forEach(k => freezeRun(runState[k]));
+    save();
+    apply();
+  };
   $('tzGrid').onclick = e => {
     const o = e.target.closest('.clock-opt');
     if (o) setClockTz(o.dataset.tz);
@@ -1621,14 +1633,23 @@ function exitFS() {
 }
 
 function switchMode(m) {
-  if (running) pause();
-  // A stopwatch run that's being abandoned still counts as a session
-  if (mode === 'stopwatch' && m !== 'stopwatch' && elapsed >= 1000) logSession();
+  // Re-entering the mode you're already in has to be a no-op. The tab is
+  // clickable while active, and with Keep Modes Running off the leaving branch
+  // below would pause a run the user only meant to click on.
+  if (m === mode) return;
+  
+  if (mode !== 'clock') {
+    if (running && !settings.bgRun) pause();
+    stashRun(mode);
+  }
+  // The on-screen loop always stops. A backgrounded run keeps its startTime and
+  // is recomputed from the wall clock when it comes back.
+  clearInterval(interval);
+  
   mode = m;
   document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === m));
   
-  laps = [];
-  lastLapTime = 0;
+  const s = loadRun(m);
   renderLaps();
   $('splitDisplay').classList.remove('show');
   
@@ -1647,23 +1668,96 @@ function switchMode(m) {
     $('dial').classList.add('countdown-mode');
   }
   if (m === 'pomodoro') {
-    r.classList.add('pomo-work');
-    $('dial').classList.add('pomo-work');
-    pomoPhase = 'work';
-    pomoRound = 1;
-    pomoTotalFocus = 0;
-    timerDuration = settings.pomo.work * 1000;
-    timerRemaining = timerDuration;
+    const brk = pomoPhase !== 'work';
+    r.classList.add(brk ? 'pomo-break' : 'pomo-work');
+    $('dial').classList.add(brk ? 'pomo-break' : 'pomo-work');
     updatePomo();
   }
   
-  $('timeLabel').textContent = { stopwatch: 'Stopwatch', timer: 'Timer', pomodoro: 'Focus Time', clock: 'Clock' }[m];
-  elapsed = 0;
+  $('timeLabel').textContent = m === 'pomodoro'
+    ? (pomoPhase === 'work' ? 'Focus Time' : 'Break')
+    : { stopwatch: 'Stopwatch', timer: 'Timer', clock: 'Clock' }[m];
+  syncPlayBtn();
   moveTab();
   syncBodyState();
   syncClockLoop();
   updateDisplay();
   updateRing();
+  
+  // Anything the mode owed from its time in the background is settled here, on
+  // its own screen, rather than firing over whatever the user was looking at.
+  if (running) {
+    interval = setInterval(tick, 16);
+    tick();            // fires complete() if the countdown ran out while away
+  } else if (s && s.due) {
+    s.due = false;
+    complete();
+  }
+}
+
+// ========== PER-MODE RUN STATE ==========
+// One set of globals used to be shared by every mode, so leaving a mode didn't
+// stop it — it wiped it. Each mode now keeps its own snapshot and the globals
+// are simply whichever snapshot is currently on screen.
+//
+// A mode left running in the background does NOT get a live interval. Every
+// value is derived from startTime against the wall clock, so there is nothing
+// to keep ticking: the arithmetic on return is the same either way, and one
+// loop can't drift from another if there's only ever one.
+const runState = {};
+
+function stashRun(m) {
+  if (!m || m === 'clock') return;
+  // Same reasoning as pause(): recompute instead of copying tick()'s last
+  // write, so the snapshot is right even if the loop was running behind.
+  const el = running ? Date.now() - startTime : elapsed;
+  runState[m] = {
+    running, startTime, elapsed: el, timerDuration,
+    timerRemaining: timerDuration > 0 ? Math.max(0, timerDuration - el) : timerRemaining,
+    laps: laps.slice(), lastLapTime,
+    pomoPhase, pomoRound, pomoTotalFocus,
+    due: false
+  };
+}
+
+// Stop a snapshot where it stands. Used when Keep Modes Running is switched off
+// underneath something already counting in the background.
+function freezeRun(s) {
+  if (!s.running) return;
+  s.running = false;
+  s.elapsed = Date.now() - s.startTime;
+  if (s.timerDuration > 0) {
+    s.timerRemaining = Math.max(0, s.timerDuration - s.elapsed);
+    // It ran out while nobody was watching. Alerting now would fire from a mode
+    // that isn't on screen, so the completion is held and spent on return.
+    if (s.timerRemaining <= 0) s.due = true;
+  }
+}
+
+function loadRun(m) {
+  const s = runState[m];
+  if (!s) {
+    running = false; startTime = 0; elapsed = 0;
+    laps = []; lastLapTime = 0;
+    if (m === 'pomodoro') {
+      pomoPhase = 'work'; pomoRound = 1; pomoTotalFocus = 0;
+      timerDuration = settings.pomo.work * 1000;
+      timerRemaining = timerDuration;
+    } else {
+      timerDuration = 0; timerRemaining = 0;
+    }
+    return null;
+  }
+  running = s.running; startTime = s.startTime; elapsed = s.elapsed;
+  timerDuration = s.timerDuration; timerRemaining = s.timerRemaining;
+  laps = s.laps; lastLapTime = s.lastLapTime;
+  pomoPhase = s.pomoPhase; pomoRound = s.pomoRound; pomoTotalFocus = s.pomoTotalFocus;
+  return s;
+}
+
+function syncPlayBtn() {
+  $('playBtn').innerHTML = icon(running ? 'pause' : 'play', 26);
+  $('playBtn').title = running ? 'Pause' : 'Start';
 }
 
 // ========== CLOCK MODE ==========
@@ -1735,8 +1829,7 @@ function start() {
   }
   running = true;
   startTime = Date.now() - elapsed;
-  $('playBtn').innerHTML = icon('pause', 26);
-  $('playBtn').title = 'Pause';
+  syncPlayBtn();
   interval = setInterval(tick, 16);
   if (mode === 'pomodoro') showQuote();
   syncBodyState();
@@ -1744,10 +1837,13 @@ function start() {
 }
 
 function pause() {
+  // Derive from the wall clock rather than trusting whatever tick() last wrote.
+  // A throttled background tab can leave elapsed hundreds of ms behind, and
+  // pausing on the stale value silently loses that time.
+  if (running) elapsed = Date.now() - startTime;
   running = false;
   clearInterval(interval);
-  $('playBtn').innerHTML = icon('play', 26);
-  $('playBtn').title = 'Start';
+  syncPlayBtn();
   syncBodyState();
   releaseWake();
 }
