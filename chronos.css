@@ -614,6 +614,18 @@ body.visual-sunset::before {
   opacity: .45;
 }
 
+/* AM/PM is an annotation, not a reading — same size and weight the
+   centiseconds get, so "2:45 PM" stays one shape rather than two competing
+   ones. Letterspaced because at 0.4em the mono pair sits too tight to scan. */
+.time .mer {
+  display: inline-block;
+  font-size: 0.4em;
+  font-weight: 400;
+  letter-spacing: .06em;
+  opacity: .45;
+  vertical-align: .1em;
+}
+
 .running .time {
   text-shadow: 0 0 20px color-mix(in srgb, var(--accent) 12%, transparent);
 }
@@ -3211,6 +3223,74 @@ kbd {
    there as a hook if timer ever wants real distinction again, but the
    default now is "identical to stopwatch," not "differs unless someone
    remembers to check." */
+
+/* ---------- Mode visibility ---------- */
+.mode-tab.hidden { display: none; }
+
+/* A row with one tab in it isn't a choice, it's a caption — and it sits at the
+   very top of the stage pushing the dial down for nothing. This is what "just
+   Pomodoro" is meant to look like. */
+.mode-tabs.solo { display: none; }
+
+/* The last enabled mode can't be switched off. Its handler returns early, and
+   without this the toggle would just fail to respond with nothing on screen to
+   say why. */
+.toggle.locked {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* ---------- Clock mode ----------
+   The dial stops being a control and becomes a readout, so everything that
+   exists to drive a run comes off it. */
+
+.mode-clock .controls,
+.mode-clock .drag-hint,
+.mode-clock .split-display { display: none; }
+
+/* Every other mode advances the ring monotonically, and the .12s ease covers
+   the gap between samples. The clock wraps to zero once a lap, and that same
+   ease renders the wrap as a visible backwards un-draw. The face is repainted
+   at 30fps anyway, so the value is already smooth without it. */
+.mode-clock .ring-progress {
+  transition: opacity .5s var(--e-out), filter .6s var(--e-out);
+}
+
+/* Nothing is "running" in clock mode, so the colon inherits no life from
+   .running — it gets its own, at half the pace. */
+.mode-clock .time .sep {
+  animation: sepBreath 2s var(--e-io) infinite;
+}
+
+/* The date sits in the label slot, which is already uppercase and tracked out —
+   it just needs to stop being whisper-faint, now that it's content and not a
+   caption. */
+.mode-clock .time-label {
+  opacity: .62;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Immersive sizing is its own problem: .fullscreen .time grows with vmin while
+   .fullscreen .dial caps at 500px, so past a ~625px vmin the type keeps
+   scaling and the ring doesn't. The other modes have always worn that (an
+   hour-long stopwatch overflows the ring today) and changing it would move
+   type people are used to — but clock mode is new and has no such history, so
+   it caps the same way the dial does. Both branches land near 380px wide, so
+   the face holds one size across every format. */
+.fullscreen.mode-clock .time {
+  font-size: calc(min(20vmin, 127px) * var(--clock-scale));
+}
+
+.fullscreen.mode-clock .time.long {
+  font-size: calc(min(12.7vmin, 79px) * var(--clock-scale));
+}
+
+/* The date is the only other thing on a full screen — it can carry more than
+   the 10px caption it is at desk size. */
+.fullscreen.mode-clock .time-label {
+  font-size: calc(min(2vmin, 13px) * var(--ui-scale));
+  margin-top: calc(min(3vmin, 20px));
+}
 
 .history-date {
   font-variant-numeric: tabular-nums;

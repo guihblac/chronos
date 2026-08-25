@@ -1,7 +1,7 @@
 // ========== GLOBALS ==========
 // Bump on every delivery. Shown in the background diagnostic so we can tell at a
 // glance whether the browser is running this file or a cached older one.
-const BUILD = 'B7 img-dataurl';
+const BUILD = 'B8 clock-mode';
 const $ = id => document.getElementById(id);
 const CIRC = 2 * Math.PI * 126;
 
@@ -35,6 +35,9 @@ let palMatches = [];
 let sessionTag = '';
 let dialDragging = false;   // suppresses ring/digit animation under the pointer
 let tabPlaced = false;      // first #tabInd placement must not animate
+let clockTimer = null;      // clock mode's own loop — the core tick() only runs while `running`
+let lastClockLabel = '';    // so the date under the dial isn't rewritten 30x a second
+let lastClockSec = -1;
 
 // Rounds has no real ceiling — past PIP_MAX it's a bar, not a dot per round, so
 // nothing renders per-round any more and a big count costs nothing. This cap is
@@ -50,8 +53,24 @@ const DEPS = [
   ['customPaletteBlock', 'useCustomPalette'],
   ['longBreakDep', 'longBreaks'],
   ['soundDep', 'sound'],
-  ['worldDep', 'worldClocks']
+  ['worldDep', 'worldClocks'],
+  ['clockDep', 'modes.clock']
 ];
+
+// Reads a settings key, or a dotted path into one. DEPS needs the second form
+// now that a dependent group is gated on settings.modes.clock rather than a
+// flat boolean.
+function setting(path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), settings);
+}
+
+// Declared order is tab order, and it's also the fallback order: when the mode
+// on screen gets hidden, the first enabled one in this list takes over.
+const MODES = ['stopwatch', 'timer', 'pomodoro', 'clock'];
+const MODE_KEYS = { Digit1: 'stopwatch', Digit2: 'timer', Digit3: 'pomodoro', Digit4: 'clock' };
+
+const modeTab = m => document.querySelector('.mode-tab[data-mode="' + m + '"]');
+const enabledModes = () => MODES.filter(m => settings.modes[m]);
 
 // Presentation state
 // Live, not a boot-time snapshot: the Motion setting can override the OS at any
@@ -79,7 +98,9 @@ const ICONS = {
   flag: '<path d="M5 21V4"/><path d="M5 5h11l-2 3.5L16 12H5"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18"/><path d="M8 3v4M16 3v4"/><circle cx="8.5" cy="14.5" r="1.1" fill="currentColor" stroke="none"/>',
   timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4"/><path d="M9.5 2.5h5"/>',
+  hourglass: '<path d="M6.5 3h11"/><path d="M6.5 21h11"/><path d="M8.5 3v3.8l3.5 4.4 3.5-4.4V3"/><path d="M8.5 21v-3.8l3.5-4.4 3.5 4.4V21"/>',
   tomato: '<circle cx="12" cy="14" r="7.5"/><path d="M8.5 6.5C10 5 14 5 15.5 6.5"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6.5 7l.8 12.1a1.5 1.5 0 0 0 1.5 1.4h6.4a1.5 1.5 0 0 0 1.5-1.4L17.5 7"/>',
   spark: '<path d="M12 3l2.1 6.2L20 11l-5.9 1.8L12 19l-2.1-6.2L4 11l5.9-1.8z"/>',
@@ -450,6 +471,11 @@ const settings = {
   shutSections: [],
   hour12: false,
   clockSeconds: false,
+  // Which mode tabs exist. Clock is off by default — three tabs is the shape
+  // this app has always had. At least one is always on; see load().
+  modes: { stopwatch: true, timer: true, pomodoro: true, clock: false },
+  clockTz: '',        // '' = this device. Otherwise a key into tzMap.
+  clockDate: true,
   notifications: false,
   customCSS: '',
   customQuotes: null,
@@ -531,6 +557,59 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Reading the clock in another zone means going through Intl, but constructing
+// a DateTimeFormat is expensive and the clock loop runs at 30fps — so the
+// formatter is built once per zone and reused until the zone changes.
+let tzFmt = null, tzFmtFor = null;
+function tzTime(d) {
+  const tz = settings.clockTz && tzMap[settings.clockTz];
+  if (!tz) return { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() };
+  try {
+    if (tzFmtFor !== tz) {
+      // hourCycle h23 rather than hour12:false — the latter reports midnight as
+      // hour 24 in some engines, which would render "24:07" for seven minutes
+      // past midnight.
+      tzFmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      tzFmtFor = tz;
+    }
+    const p = {};
+    tzFmt.formatToParts(d).forEach(x => { p[x.type] = x.value; });
+    return { h: +p.hour, m: +p.minute, s: +p.second };
+  } catch (e) {
+    // A zone the engine doesn't carry shouldn't strand the face on a blank.
+    return { h: d.getHours(), m: d.getMinutes(), s: d.getSeconds() };
+  }
+}
+
+// Built by hand rather than toLocaleTimeString because the digit-roll in
+// updateDisplay() diffs character by character: it needs the string to keep a
+// stable shape, and a locale can hand back narrow no-break spaces, dots for
+// separators, or a leading zero that comes and goes.
+function clockString(d) {
+  const t = tzTime(d || new Date());
+  let h = t.h;
+  const mer = h < 12 ? 'AM' : 'PM';
+  if (settings.hour12) { h = h % 12 || 12; }
+  let s = (settings.hour12 ? String(h) : String(h).padStart(2, '0')) + ':' +
+    String(t.m).padStart(2, '0');
+  if (settings.clockSeconds) s += ':' + String(t.s).padStart(2, '0');
+  if (settings.hour12) s += ' ' + mer;
+  return s;
+}
+
+function clockDate(d) {
+  d = d || new Date();
+  const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+  if (settings.clockTz && tzMap[settings.clockTz]) opts.timeZone = tzMap[settings.clockTz];
+  try {
+    return d.toLocaleDateString(undefined, opts);
+  } catch (e) {
+    return d.toDateString();
+  }
+}
+
 function lighten(hex, pct) {
   const n = hex.replace('#', '');
   const num = parseInt(n, 16);
@@ -585,6 +664,10 @@ function load() {
       // Drop any saved city that is no longer in the list
       if (!Array.isArray(settings.clocks)) settings.clocks = ['London', 'Tokyo', 'New York'];
       settings.clocks = settings.clocks.filter(c => tzMap[c]).slice(0, MAX_CLOCKS);
+      // B8 shipped clock visibility as a flat `clockTab` boolean before the
+      // other three modes became hideable too. Carry the choice across rather
+      // than silently resetting it.
+      if (!parsed.modes && 'clockTab' in parsed) settings.modes.clock = !!parsed.clockTab;
     }
     if (!Array.isArray(settings.customQuotes) || !settings.customQuotes.length) settings.customQuotes = DEFAULT_QUOTES.slice();
     if (!Array.isArray(settings.recentTags)) settings.recentTags = [];
@@ -616,6 +699,16 @@ function load() {
     });
   }
   if (!['auto', 'full', 'none'].includes(settings.motion)) settings.motion = 'auto';
+  delete settings.clockTab;
+  if (!settings.modes || typeof settings.modes !== 'object') settings.modes = {};
+  MODES.forEach(m => {
+    settings.modes[m] = m in settings.modes ? !!settings.modes[m] : m !== 'clock';
+  });
+  // An imported or hand-edited file can turn everything off, which would leave
+  // the app with no dial to show and no tab to get one back.
+  if (!enabledModes().length) settings.modes.stopwatch = true;
+  if (!tzMap[settings.clockTz]) settings.clockTz = '';
+  settings.clockDate = !!settings.clockDate;
   const clamp = (v, lo, hi, dflt) => { const n = +v; return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
   settings.clockScale = clamp(settings.clockScale, 60, 130, 100);
   settings.uiScale = clamp(settings.uiScale, 85, 125, 100);
@@ -676,8 +769,18 @@ function apply() {
   if (!settings.voice && voiceActive) toggleVoice();
   if (!settings.voice) $('voiceIndicator').classList.remove('show');
   $('ambientBar').style.display = settings.showAmbientBar ? '' : 'none';
+  const on = enabledModes();
+  MODES.forEach(m => modeTab(m).classList.toggle('hidden', !settings.modes[m]));
+  // One mode is not a choice, so the row stops being a control and becomes
+  // decoration taking up the top of the screen. This is what "just Pomodoro"
+  // is supposed to look like.
+  $('modeTabs').classList.toggle('solo', on.length < 2);
   settings.visualTheme === 'matrix' ? startMatrix() : stopMatrix();
   reorderTopBar();
+  // Hiding the mode you're standing in would otherwise leave the dial in a
+  // state with no tab to leave it by.
+  if (!settings.modes[mode]) switchMode(on[0]);
+  syncClockLoop();   // Motion can change here, and the loop's rate is keyed to it
   syncBodyState();
   updateUI();
   requestAnimationFrame(moveTab);
@@ -766,12 +869,23 @@ function updateUI() {
   $('compactToggle').classList.toggle('active', settings.compact);
   $('hour12Toggle').classList.toggle('active', settings.hour12);
   $('clockSecondsToggle').classList.toggle('active', settings.clockSeconds);
+  $('clockDateToggle').classList.toggle('active', settings.clockDate);
+  const soleMode = enabledModes().length === 1;
+  MODES.forEach(m => {
+    const t = $('mode' + m[0].toUpperCase() + m.slice(1) + 'Toggle');
+    t.classList.toggle('active', settings.modes[m]);
+    // The one remaining mode reads as locked rather than simply not responding
+    t.classList.toggle('locked', soleMode && settings.modes[m]);
+  });
+  $('clockOffNote').style.display = settings.modes.clock ? 'none' : '';
+  document.querySelectorAll('#tzGrid .clock-opt').forEach(o =>
+    o.classList.toggle('active', o.dataset.tz === settings.clockTz));
   $('notifToggle').classList.toggle('active', settings.notifications);
 
   // Sub-settings that collapse with the toggle governing them. Table-driven so
   // a new dependent group is one entry here, not a second hand-synced spot
   // that can drift from it.
-  DEPS.forEach(([id, key]) => $(id).classList.toggle('open', !!settings[key]));
+  DEPS.forEach(([id, key]) => $(id).classList.toggle('open', !!setting(key)));
 
   $('customPaletteToggle').classList.toggle('active', settings.useCustomPalette);
   $('paletteBgPicker').value = settings.customPalette.bg || '#0a0a0f';
@@ -826,7 +940,12 @@ function updateUI() {
   document.querySelectorAll('.color-opt').forEach(c => c.classList.toggle('active', c.dataset.color === settings.colorTheme));
   document.querySelectorAll('.font-opt').forEach(f => f.classList.toggle('active', f.dataset.font === settings.timeFont));
   document.querySelectorAll('.sound-opt').forEach(s => s.classList.toggle('active', s.dataset.sound === settings.alertSound));
-  document.querySelectorAll('.clock-opt').forEach(c => {
+  // Scoped to #clockGrid. The timezone picker reuses .clock-opt for the same
+  // chip look, so a bare '.clock-opt' sweep reaches into that grid too — and
+  // since those chips carry data-tz rather than data-city, every one of them
+  // reads as "not a selected city" and gets stripped of .active on the next
+  // updateUI. That's what was un-highlighting the chosen zone.
+  document.querySelectorAll('#clockGrid .clock-opt').forEach(c => {
     const on = settings.clocks.includes(c.dataset.city);
     c.classList.toggle('active', on);
     c.classList.toggle('disabled', !on && settings.clocks.length >= MAX_CLOCKS);
@@ -886,6 +1005,13 @@ function renderClocks() {
   $('clockGrid').innerHTML = Object.keys(tzMap).map(c =>
     '<div class="clock-opt" data-city="' + c + '">' + c + '</div>'
   ).join('');
+  // Same chip component as the world-clock picker directly below it, which is
+  // the point: one picks the single zone the dial reads, the other picks the
+  // handful the strip lists.
+  $('tzGrid').innerHTML = '<div class="clock-opt" data-tz="">Local</div>' +
+    Object.keys(tzMap).map(c =>
+      '<div class="clock-opt" data-tz="' + c + '">' + c + '</div>'
+    ).join('');
 }
 
 function renderQuotes() {
@@ -1008,8 +1134,41 @@ function bindEvents() {
   tog('ambientBarToggle', 'showAmbientBar');
   tog('quotesToggle', 'showQuotes');
   tog('compactToggle', 'compact');
-  $('hour12Toggle').onclick = () => { settings.hour12 = !settings.hour12; save(); updateUI(); updateWorldClocks(); };
-  $('clockSecondsToggle').onclick = () => { settings.clockSeconds = !settings.clockSeconds; save(); updateUI(); updateWorldClocks(); };
+  // Format is one preference, read by both the world-clock strip and the dial,
+  // so both have to be repainted from it.
+  const clockFmt = key => {
+    $(key === 'hour12' ? 'hour12Toggle' : 'clockSecondsToggle').onclick = () => {
+      settings[key] = !settings[key];
+      save();
+      updateUI();
+      updateWorldClocks();
+      if (mode === 'clock') { updateDisplay(); updateRing(); }
+    };
+  };
+  clockFmt('hour12');
+  clockFmt('clockSeconds');
+  MODES.forEach(m => {
+    $('mode' + m[0].toUpperCase() + m.slice(1) + 'Toggle').onclick = () => {
+      // Refuse rather than silently re-enable something else: the click that
+      // empties the last mode has no sensible outcome, and bouncing back to a
+      // mode the user just turned off is worse than doing nothing.
+      if (settings.modes[m] && enabledModes().length === 1) return;
+      settings.modes[m] = !settings.modes[m];
+      save();
+      apply();
+    };
+  });
+  $('tzGrid').onclick = e => {
+    const o = e.target.closest('.clock-opt');
+    if (o) setClockTz(o.dataset.tz);
+  };
+  $('clockDateToggle').onclick = () => {
+    settings.clockDate = !settings.clockDate;
+    save();
+    updateUI();
+    lastClockLabel = '';
+    if (mode === 'clock') paintClockLabel();
+  };
   $('notifToggle').onclick = async () => {
     if (!settings.notifications) {
       if (!('Notification' in window)) { alert('Notifications are not supported in this browser'); return; }
@@ -1302,9 +1461,7 @@ function bindEvents() {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     
     if (e.key === '?') { e.preventDefault(); toggleKeys(); }
-    else if (e.code === 'Digit1') switchMode('stopwatch');
-    else if (e.code === 'Digit2') switchMode('timer');
-    else if (e.code === 'Digit3') switchMode('pomodoro');
+    else if (MODE_KEYS[e.code]) { if (settings.modes[MODE_KEYS[e.code]]) switchMode(MODE_KEYS[e.code]); }
     else if (e.code === settings.keys.toggle) { e.preventDefault(); togglePlay(); }
     else if (e.code === settings.keys.lap) recordLap();
     else if (e.code === settings.keys.reset) reset();
@@ -1398,7 +1555,13 @@ function bindEvents() {
   buildPalette();
   
   window.addEventListener('resize', () => { moveTab(); sizeMatrix(); });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && running) tick(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (running) tick();
+    // Background throttling stretches the clock loop out to seconds at a time,
+    // so the face can come back visibly stale.
+    if (mode === 'clock') tickClock();
+  });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveTab);
   
   setupDial();
@@ -1473,6 +1636,7 @@ function switchMode(m) {
   $('presets').classList.toggle('hidden', m !== 'timer');
   $('pomoInfo').classList.toggle('show', m === 'pomodoro');
   $('pomoActions').classList.toggle('show', m === 'pomodoro');
+  lastClockLabel = '';   // force the label back to a mode name / a fresh date
   
   const r = $('ringProgress');
   r.classList.remove('countdown', 'pomo-work', 'pomo-break');
@@ -1493,21 +1657,77 @@ function switchMode(m) {
     updatePomo();
   }
   
-  $('timeLabel').textContent = { stopwatch: 'Stopwatch', timer: 'Timer', pomodoro: 'Focus Time' }[m];
+  $('timeLabel').textContent = { stopwatch: 'Stopwatch', timer: 'Timer', pomodoro: 'Focus Time', clock: 'Clock' }[m];
   elapsed = 0;
   moveTab();
   syncBodyState();
+  syncClockLoop();
   updateDisplay();
   updateRing();
 }
 
+// ========== CLOCK MODE ==========
+// The core tick() only runs while the user has started something. A wall clock
+// is never "started", so it gets its own loop, alive only while its tab is the
+// one on screen.
+function syncClockLoop() {
+  clearInterval(clockTimer);
+  clockTimer = null;
+  if (mode !== 'clock') return;
+  tickClock();
+  // Faster than 1 Hz because the ring head sweeps continuously between seconds.
+  // With motion off nothing sweeps, so the digits are the only thing left to
+  // repaint and once a second is exactly enough.
+  clockTimer = setInterval(tickClock, RM ? 500 : 33);
+}
+
+// Shared by the chip grid and the palette. From the palette it also has to make
+// the face visible — "Clock: Tokyo" typed into a search box is a request to see
+// Tokyo, not to quietly change a setting for later.
+function setClockTz(tz, show) {
+  settings.clockTz = tzMap[tz] ? tz : '';
+  if (show && !settings.modes.clock) settings.modes.clock = true;
+  save();
+  if (show) apply();
+  else updateUI();
+  lastClockLabel = '';
+  if (show) switchMode('clock');
+  else if (mode === 'clock') { updateDisplay(); updateRing(); paintClockLabel(); }
+}
+
+function tickClock() {
+  updateDisplay();
+  updateRing();
+  // toLocaleDateString is far too heavy for 30fps and the answer changes once a
+  // day, so the label is only reconsidered when the second turns over.
+  const s = tzTime(new Date()).s;
+  if (s === lastClockSec) return;
+  lastClockSec = s;
+  paintClockLabel();
+}
+
+// With a zone picked, the city has to be on screen — otherwise a face reading
+// 03:18 is indistinguishable from a device whose clock is simply wrong, and
+// turning the date off would hide the only other cue.
+function paintClockLabel() {
+  const bits = [];
+  if (settings.clockTz) bits.push(settings.clockTz);
+  if (settings.clockDate) bits.push(clockDate());
+  const label = bits.length ? bits.join(' · ') : 'Clock';
+  if (label === lastClockLabel) return;
+  lastClockLabel = label;
+  $('timeLabel').textContent = label;
+}
+
 function togglePlay() {
+  if (mode === 'clock') return;   // Space is still bound; there is nothing to start
   $('playBtn').classList.add('pulse');
   setTimeout(() => $('playBtn').classList.remove('pulse'), 300);
   running ? pause() : start();
 }
 
 function start() {
+  if (mode === 'clock') return;
   if (mode === 'timer' && timerRemaining <= 0) return;
   if (mode === 'pomodoro' && timerRemaining <= 0) {
     timerDuration = settings.pomo.work * 1000;
@@ -1533,6 +1753,7 @@ function pause() {
 }
 
 function reset() {
+  if (mode === 'clock') return;
   if (settings.confirm && (running || elapsed > 0) && !confirm('Reset?')) return;
   pause();
   if (mode === 'stopwatch' && elapsed >= 1000) logSession();
@@ -1644,31 +1865,71 @@ function fmtH(ms) {
   return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '.' + String(c).padStart(2, '0');
 }
 
+// Characters fall into three buckets: separators, digits, and the 12-hour
+// meridiem. Only digits roll.
+function charClass(ch) {
+  if (ch === ':' || ch === '.') return 'sep';
+  return ch >= '0' && ch <= '9' ? 'dg' : 'mer';
+}
+
 function updateDisplay() {
-  const ms = mode === 'stopwatch' ? elapsed : timerRemaining;
-  const str = ms >= 3600000 ? fmtH(ms) : fmt(ms);
   const td = $('timeDisplay');
-  const dot = str.lastIndexOf('.');
+  let str, dot, rollTo;
   
-  // Rebuild only when the shape of the string changes (or after inline editing)
-  if (td.childElementCount !== str.length) {
-    td.classList.toggle('long', str.length > 8);
+  if (mode === 'clock') {
+    str = clockString();
+    dot = str.length;   // no centiseconds, so nothing gets the dimmed treatment
+    // Seconds change once a second and the roll runs .52s, so rolling them
+    // leaves the fastest field animating more than half the time — busy on
+    // something you only glance at. Same reasoning that already keeps the
+    // stopwatch's centiseconds still.
+    rollTo = settings.clockSeconds ? str.lastIndexOf(':') + 1 : str.length;
+  } else {
+    const ms = mode === 'stopwatch' ? elapsed : timerRemaining;
+    str = ms >= 3600000 ? fmtH(ms) : fmt(ms);
+    // lastIndexOf returns -1 when there's no fractional part, and `i >= -1` is
+    // true for every index — which would tag the whole string .ms (small and
+    // faded) and suppress every roll. Every fmt/fmtH string has a dot today, so
+    // this only ever bit the clock, but the fallback belongs here either way.
+    dot = str.lastIndexOf('.');
+    if (dot < 0) dot = str.length;
+    rollTo = dot;
+  }
+  
+  // Rebuild when the SHAPE changes, not just the length. "00:00.00" and
+  // "14:32:05" are both eight characters but want different classes on
+  // positions 5–7 — diffing text alone would leave a clock rendered with the
+  // stopwatch's faded centisecond styling. The count check stays for the
+  // separate case of the inline editor having replaced the spans with an input.
+  let shape = '';
+  for (let i = 0; i < str.length; i++) shape += charClass(str[i]) + (i >= dot ? 'm' : '') + '|';
+  
+  if (td.childElementCount !== str.length || td.dataset.shape !== shape) {
+    td.dataset.shape = shape;
+    // .long steps the face down a size so it stays inside the dial. Keyed to
+    // rendered width rather than character count, because .ms and .mer set
+    // ~0.4em: "00:00.00" is five full-width characters and fits, while the
+    // clock's "14:32:05" is eight and does not — both are eight long.
+    let w = 0;
+    for (let i = 0; i < str.length; i++) w += (i >= dot || charClass(str[i]) === 'mer') ? 0.44 : 1;
+    td.classList.toggle('long', w > 7.5);
     let h = '';
     for (let i = 0; i < str.length; i++) {
-      const ch = str[i], sep = ch === ':' || ch === '.';
-      h += '<span class="' + (sep ? 'sep' : 'dg') + (i >= dot ? ' ms' : '') + '">' + ch + '</span>';
+      const ch = str[i];
+      h += '<span class="' + charClass(ch) + (i >= dot ? ' ms' : '') + '">' +
+        (ch === ' ' ? '&nbsp;' : ch) + '</span>';
     }
     td.innerHTML = h;
     return;
   }
   
-  // Per-digit diff. Only the slow digits (left of the centiseconds) roll.
+  // Per-digit diff. Only the slow digits roll.
   const kids = td.children;
   for (let i = 0; i < str.length; i++) {
-    const el = kids[i], ch = str[i];
+    const el = kids[i], ch = str[i] === ' ' ? '\u00a0' : str[i];
     if (el.textContent === ch) continue;
     el.textContent = ch;
-    if (!RM && !dialDragging && i < dot && !el.classList.contains('sep')) {
+    if (!RM && !dialDragging && i < rollTo && el.classList.contains('dg')) {
       el.classList.remove('roll');
       void el.offsetWidth;
       el.classList.add('roll');
@@ -1677,13 +1938,29 @@ function updateDisplay() {
 }
 
 function updateRing() {
-  const p = mode === 'stopwatch' ? Math.min(elapsed / 3600000, 1) : timerDuration > 0 ? (timerDuration - timerRemaining) / timerDuration : 0;
+  const p = mode === 'clock' ? clockProgress()
+    : mode === 'stopwatch' ? Math.min(elapsed / 3600000, 1)
+    : timerDuration > 0 ? (timerDuration - timerRemaining) / timerDuration : 0;
   $('ringProgress').style.strokeDashoffset = CIRC * (1 - p);
   
   const a = p * Math.PI * 2, h = $('ringHead');
   h.setAttribute('cx', (140 + 126 * Math.cos(a)).toFixed(2));
   h.setAttribute('cy', (140 + 126 * Math.sin(a)).toFixed(2));
-  h.style.opacity = settings.showRing && p > 0.0015 ? '1' : '0';
+  // The clock head crosses zero on every wrap; the 0.0015 cutoff exists to stop
+  // a parked head sitting at 12 o'clock, which isn't a state a clock has.
+  h.style.opacity = settings.showRing && (mode === 'clock' || p > 0.0015) ? '1' : '0';
+}
+
+// The dial has exactly 60 tick marks, so both readings land one tick per step:
+// with seconds shown the ring is the current minute, without them it's the
+// current hour. Either way a full lap is 60 of something.
+function clockProgress() {
+  const d = new Date();
+  if (settings.clockSeconds) return (d.getSeconds() * 1000 + d.getMilliseconds()) / 60000;
+  // Minutes, not seconds, because half- and quarter-hour offsets (Kolkata,
+  // Kathmandu, Chatham) put the zone's minute hand somewhere the device's isn't.
+  const t = tzTime(d);
+  return (t.m * 60 + t.s) / 3600;
 }
 
 function updatePomo() {
@@ -1884,7 +2161,7 @@ function parseTimeInput(str) {
 
 // ========== EDIT TIME (DOUBLE-CLICK) ==========
 function editTime() {
-  if (running) return;
+  if (running || mode === 'clock') return;
   const display = $('timeDisplay');
   const current = display.textContent;
   const input = document.createElement('input');
@@ -1969,7 +2246,7 @@ function setupDial() {
   };
   
   const start = e => {
-    if (running || !onRing(e)) return;
+    if (running || mode === 'clock' || !onRing(e)) return;
     drag = true;
     dialDragging = true;
     document.body.classList.add('dragging');
@@ -2692,6 +2969,7 @@ function syncBodyState() {
   b.classList.toggle('mode-stopwatch', mode === 'stopwatch');
   b.classList.toggle('mode-timer', mode === 'timer');
   b.classList.toggle('mode-pomodoro', mode === 'pomodoro');
+  b.classList.toggle('mode-clock', mode === 'clock');
   b.classList.toggle('phase-break', mode === 'pomodoro' && pomoPhase !== 'work');
 }
 
@@ -2779,7 +3057,6 @@ function initSections() {
 
 // ========== SHORTCUT OVERLAY ==========
 const EXTRA_KEYS = [
-  ['1 / 2 / 3', 'Switch mode'],
   ['?', 'This overlay'],
   ['Ctrl / ⌘ K', 'Command palette'],
   ['Esc', 'Close panels'],
@@ -2790,8 +3067,12 @@ const EXTRA_KEYS = [
 function buildKeysList() {
   const labels = { toggle: 'Start / Pause', lap: 'Lap', reset: 'Reset', fullscreen: 'Fullscreen', settings: 'Settings' };
   const row = (k, l) => '<div class="keys-row"><span>' + l + '</span><kbd>' + k + '</kbd></div>';
+  // Only the digits that go somewhere. With a single mode enabled there's
+  // nothing to switch to, so the row goes entirely.
+  const digits = MODES.map((m, i) => settings.modes[m] ? String(i + 1) : null).filter(Boolean);
   $('keysGrid').innerHTML =
     Object.keys(labels).map(a => row(codeToDisplay(settings.keys[a]), labels[a])).join('') +
+    (digits.length > 1 ? row(digits.join(' / '), 'Switch mode') : '') +
     EXTRA_KEYS.map(p => row(p[0], p[1])).join('');
 }
 
@@ -2806,9 +3087,6 @@ let COMMANDS = [];
 function buildPalette() {
   const cmd = (ico, name, cat, run) => ({ ico: icon(ico, 16), name, cat, run });
   COMMANDS = [
-    cmd('clock', 'Stopwatch mode', 'Mode', () => switchMode('stopwatch')),
-    cmd('timer', 'Timer mode', 'Mode', () => switchMode('timer')),
-    cmd('tomato', 'Pomodoro mode', 'Mode', () => switchMode('pomodoro')),
     cmd('play', 'Start / Pause', 'Control', togglePlay),
     cmd('reset', 'Reset', 'Control', reset),
     cmd('flag', 'Record lap', 'Control', recordLap),
@@ -2823,11 +3101,28 @@ function buildPalette() {
     cmd('timer', 'Pomodoro: add 5 minutes', 'Control', () => extendPhase(300)),
     cmd('chart', 'Export backup', 'Data', () => $('exportSettingsBtn').click()),
     cmd('trash', 'Clear session history', 'Data', () => $('clearHistoryBtn').click()),
-    cmd('expand', 'Toggle Focus On card', 'View', () => { settings.showTagCard = !settings.showTagCard; save(); apply(); })
+    cmd('expand', 'Toggle Focus On card', 'View', () => { settings.showTagCard = !settings.showTagCard; save(); apply(); }),
+    cmd('clock', 'Toggle 12-hour format', 'View', () => $('hour12Toggle').click()),
+    cmd('clock', 'Toggle clock seconds', 'View', () => $('clockSecondsToggle').click())
   ];
   
   [[60000, '1 minute'], [180000, '3 minutes'], [300000, '5 minutes'], [600000, '10 minutes'], [1500000, '25 minutes']]
     .forEach(p => COMMANDS.push(cmd('timer', 'Timer: ' + p[1], 'Preset', () => { switchMode('timer'); setTimer(p[0]); })));
+  
+  // Every mode is reachable here whether or not its tab is showing — selecting
+  // one turns the tab back on, which is what someone who searched for it wants.
+  // It's also the only way back if all the tabs but one are hidden.
+  // The stopwatch glyph (crown button on top) goes to Stopwatch and the wall
+  // clock to Clock — they were the other way round, which only became wrong
+  // once there was a fourth mode that actually is a wall clock.
+  const MODE_ICONS = { stopwatch: 'timer', timer: 'hourglass', pomodoro: 'tomato', clock: 'clock' };
+  MODES.forEach(m => COMMANDS.push(cmd(MODE_ICONS[m], m[0].toUpperCase() + m.slice(1) + ' mode', 'Mode', () => {
+    if (!settings.modes[m]) { settings.modes[m] = true; save(); apply(); }
+    switchMode(m);
+  })));
+  
+  COMMANDS.push(cmd('clock', 'Clock: local time', 'Clock', () => setClockTz('', true)));
+  Object.keys(tzMap).forEach(c => COMMANDS.push(cmd('globe', 'Clock: ' + c, 'Clock', () => setClockTz(c, true))));
   
   ['default', 'minimal', 'aurora', 'matrix', 'sunset', 'neon', 'glass', 'retro', 'cosmic', 'vivaldi']
     .forEach(t => COMMANDS.push(cmd('layers', 'Theme: ' + t, 'Theme', () => { settings.visualTheme = t; save(); apply(); })));

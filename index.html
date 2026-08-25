@@ -75,11 +75,12 @@
   </aside>
   
   <div class="main">
-    <div class="mode-tabs" data-reveal style="--d:2">
+    <div class="mode-tabs" id="modeTabs" data-reveal style="--d:2">
       <span id="tabInd"></span>
       <button class="mode-tab active" data-mode="stopwatch">⏱ Stopwatch</button>
       <button class="mode-tab" data-mode="timer">⏲ Timer</button>
       <button class="mode-tab" data-mode="pomodoro">🍅 Pomodoro</button>
+      <button class="mode-tab hidden" data-mode="clock">🕐 Clock</button>
     </div>
     
     <div class="dial-wrap" data-reveal style="--d:3">
@@ -301,6 +302,27 @@
       </div>
 
       <div class="panel-section">
+        <h3><i class="sec-ico" data-ico="columns"></i>Modes</h3>
+        <p class="sub-note">Hide the ones you don't use. Drop to a single mode and the tab row goes away entirely.</p>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="timer"></i><span class="setting-label">Stopwatch</span>
+          <div class="toggle active" id="modeStopwatchToggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="hourglass"></i><span class="setting-label">Timer</span>
+          <div class="toggle active" id="modeTimerToggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="tomato"></i><span class="setting-label">Pomodoro</span>
+          <div class="toggle active" id="modePomodoroToggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="clock"></i><span class="setting-label">Clock</span>
+          <div class="toggle" id="modeClockToggle"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
         <h3><i class="sec-ico" data-ico="tomato"></i>Pomodoro</h3>
         <p class="sub-note">Use MM:SS format (e.g., 25:00 or 0:30)</p>
         <div class="setting-row">
@@ -408,20 +430,34 @@
       <div class="panel-tier">Advanced</div>
 
       <div class="panel-section">
+        <h3><i class="sec-ico" data-ico="clock"></i>Clock</h3>
+        <div class="dep" id="clockDep"><div class="dep-in">
+          <p class="sub-note">Which time the dial reads. Local follows this device.</p>
+          <div class="clock-grid" id="tzGrid"></div>
+          <div class="setting-row">
+            <i class="row-ico" data-ico="calendar"></i><span class="setting-label">Show Date</span>
+            <div class="toggle active" id="clockDateToggle"></div>
+          </div>
+        </div></div>
+        <p class="sub-note" id="clockOffNote">Turn on Clock under Modes to use the dial as a clock.</p>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
+          <div class="toggle" id="hour12Toggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" data-ico="ring"></i><span class="setting-label">Show Seconds</span>
+          <div class="toggle" id="clockSecondsToggle"></div>
+        </div>
+        <p class="sub-note">Format applies to the clock face and the world clocks.</p>
+      </div>
+
+      <div class="panel-section">
         <h3><i class="sec-ico" data-ico="globe"></i>World Clocks</h3>
         <div class="setting-row">
           <i class="row-ico" data-ico="globe"></i><span class="setting-label">Show World Clocks</span>
           <div class="toggle active" id="worldToggle"></div>
         </div>
         <div class="dep open" id="worldDep"><div class="dep-in">
-          <div class="setting-row">
-            <i class="row-ico" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
-            <div class="toggle" id="hour12Toggle"></div>
-          </div>
-          <div class="setting-row">
-            <i class="row-ico" data-ico="timer"></i><span class="setting-label">Show Seconds</span>
-            <div class="toggle" id="clockSecondsToggle"></div>
-          </div>
           <p class="sub-note">Pick up to 6 cities</p>
           <div class="clock-grid" id="clockGrid"></div>
         </div></div>
