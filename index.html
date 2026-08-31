@@ -2,46 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chronos</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@100;200;300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Chronos — Stopwatch, Timer &amp; Pomodoro</title>
+  <meta name="description" content="A stopwatch, countdown timer, Pomodoro clock and wall clock in one dial. Ten visual themes, ambient sound, session analytics and keyboard control. Runs offline, stores nothing on a server.">
+  <meta name="color-scheme" content="dark light">
+
+  <!-- Matches the browser chrome to the app's own background in each scheme,
+       so the status bar doesn't sit as a light band above a dark page. -->
+  <meta name="theme-color" content="#0a0a0f" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Chronos">
+  <meta property="og:description" content="A stopwatch, countdown timer, Pomodoro clock and wall clock in one dial.">
+  <meta property="og:image" content="icon-512.png">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Chronos">
+
+  <!-- The font stylesheet is render-blocking and lives on a second origin, so
+       first paint waits on a fresh DNS + TLS handshake before it can even ask
+       for the CSS. Warming both origins in parallel with the HTML parse takes
+       that off the critical path. The service worker caches the files after the
+       first visit; --font-ui / --font-mono / --font-display in the stylesheet
+       carry the fallbacks for the visit before that. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@100;200;300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Azeret+Mono:wght@400;500;700;800&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@500;600;700;800&family=Doto:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="chronos.css">
 </head>
 <body class="theme-indigo">
-  <div id="boot">
+  <a class="skip-link" href="#dial">Skip to the timer</a>
+
+  <!-- Two live regions rather than one. The timer display itself is marked
+       aria-hidden: it rebuilds per digit at 60fps, and pointing a live region
+       at it would read the centiseconds aloud forever. State changes are
+       announced here instead, in whole sentences, only when they happen.
+       'polite' waits for a gap in speech; 'assertive' interrupts, and is used
+       only when a timer actually reaches zero. -->
+  <div id="a11yLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="a11yAlert" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+  <div id="boot" aria-hidden="true">
     <div class="bw">Chronos</div>
     <div class="bl"></div>
   </div>
 
-  <div id="bgMedia"></div>
-  <button class="fs-exit" id="fsExit" title="Exit immersive mode (Esc)" data-ico="collapse"></button>
+  <div id="bgMedia" aria-hidden="true"></div>
+  <button class="fs-exit" id="fsExit" title="Exit immersive mode (Esc)" aria-label="Exit immersive mode" data-ico="collapse"></button>
 
-  <canvas id="particles"></canvas>
-  <canvas id="matrix"></canvas>
-  <div id="vignette"></div>
+  <canvas id="particles" aria-hidden="true"></canvas>
+  <canvas id="matrix" aria-hidden="true"></canvas>
+  <div id="vignette" aria-hidden="true"></div>
 
-  <div class="voice-indicator" id="voiceIndicator">
+  <div class="voice-indicator" id="voiceIndicator" role="status" aria-live="polite">
     <span class="pulse-dot"></span>
     <span id="voiceText">Listening...</span>
   </div>
   
-  <div class="top-bar" data-reveal style="--d:0">
-    <div class="logo" id="titleEdit">⏱ Chronos</div>
-    <div class="top-actions">
-      <button class="icon-btn" id="themeToggleBtn" data-key="theme" title="Toggle dark/light" data-ico="moon"></button>
-      <button class="icon-btn" id="voiceBtn" data-key="voice" title="Voice Control" data-ico="mic"></button>
-      <button class="icon-btn" id="historyBtn" data-key="dashboard" title="Dashboard" data-ico="chart"></button>
-      <button class="icon-btn" id="pipBtn" data-key="pip" title="Picture-in-Picture" data-ico="pip"></button>
-      <button class="icon-btn" id="fullscreenBtn" data-key="fullscreen" title="Fullscreen" data-ico="expand"></button>
-      <button class="icon-btn" id="settingsBtn" data-key="settings" title="Settings" data-ico="cog"></button>
-    </div>
-  </div>
-  
-  <div class="world-clocks" id="worldClocks" data-reveal style="--d:1"></div>
+  <header class="top-bar" role="banner" data-reveal style="--d:0">
+    <div class="logo" id="titleEdit" role="button" tabindex="0" aria-label="Timer name, Chronos. Activate to rename." title="Double-click to rename">⏱ Chronos</div>
+    <nav class="top-actions" aria-label="App controls">
+      <button class="icon-btn" id="themeToggleBtn" data-key="theme" title="Toggle dark/light" aria-label="Toggle dark and light mode" data-ico="moon"></button>
+      <button class="icon-btn" id="voiceBtn" data-key="voice" title="Voice Control" aria-label="Voice control" aria-pressed="false" data-ico="mic"></button>
+      <button class="icon-btn" id="historyBtn" data-key="dashboard" title="Dashboard" aria-label="Open dashboard" aria-haspopup="dialog" aria-expanded="false" data-ico="chart"></button>
+      <button class="icon-btn" id="pipBtn" data-key="pip" title="Picture-in-Picture" aria-label="Open picture-in-picture timer" data-ico="pip"></button>
+      <button class="icon-btn" id="fullscreenBtn" data-key="fullscreen" title="Fullscreen" aria-label="Toggle immersive mode" aria-pressed="false" data-ico="expand"></button>
+      <button class="icon-btn" id="settingsBtn" data-key="settings" title="Settings" aria-label="Open settings" aria-haspopup="dialog" aria-expanded="false" data-ico="cog"></button>
+    </nav>
+  </header>
+
+  <div class="world-clocks" id="worldClocks" aria-label="World clocks" data-reveal style="--d:1"></div>
   
   <div class="stage">
   
-  <aside class="rail rail-l" data-reveal style="--d:5">
+  <aside class="rail rail-l" aria-label="Today's activity" data-reveal style="--d:5">
     <div class="analytics-mini" id="analyticsMini">
       <h4>Today</h4>
       <div class="goal-ring" id="goalRing">
@@ -74,19 +114,21 @@
     </div>
   </aside>
   
-  <div class="main">
-    <div class="mode-tabs" id="modeTabs" data-reveal style="--d:2">
+  <div class="main" role="main">
+    <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="Timer mode" data-reveal style="--d:2">
       <span id="tabInd"></span>
-      <button class="mode-tab active" data-mode="stopwatch">⏱ Stopwatch</button>
-      <button class="mode-tab" data-mode="timer">⏲ Timer</button>
-      <button class="mode-tab" data-mode="pomodoro">🍅 Pomodoro</button>
-      <button class="mode-tab hidden" data-mode="clock">🕐 Clock</button>
+      <button class="mode-tab active" role="tab" id="tabStopwatch" aria-selected="true" aria-controls="dial" data-mode="stopwatch">⏱ Stopwatch</button>
+      <button class="mode-tab" role="tab" id="tabTimer" aria-selected="false" aria-controls="dial" data-mode="timer">⏲ Timer</button>
+      <button class="mode-tab" role="tab" id="tabPomodoro" aria-selected="false" aria-controls="dial" data-mode="pomodoro">🍅 Pomodoro</button>
+      <button class="mode-tab hidden" role="tab" id="tabClock" aria-selected="false" aria-controls="dial" data-mode="clock">🕐 Clock</button>
     </div>
     
     <div class="dial-wrap" data-reveal style="--d:3">
-      <div class="dial" id="dial">
-        <div id="bloom"></div>
-        <svg class="ring-svg" viewBox="0 0 280 280">
+      <div class="dial" id="dial" role="slider" tabindex="0"
+           aria-label="Duration. Drag the ring, or use the arrow keys, to set the time."
+           aria-valuemin="0" aria-valuemax="3600" aria-valuenow="0" aria-valuetext="Zero seconds">
+        <div id="bloom" aria-hidden="true"></div>
+        <svg class="ring-svg" viewBox="0 0 280 280" aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
               <stop class="g1" offset="0%"/>
@@ -94,17 +136,18 @@
             </linearGradient>
           </defs>
           <g id="ticks"></g>
+          <g id="numerals"></g>
           <circle class="ring-bg" cx="140" cy="140" r="126"/>
           <circle class="ring-progress" id="ringProgress" cx="140" cy="140" r="126" stroke-dasharray="791.68" stroke-dashoffset="0"/>
           <circle class="ring-head" id="ringHead" cx="266" cy="140" r="5" style="opacity:0"/>
         </svg>
-        <div class="split-display" id="splitDisplay">
+        <div class="split-display" id="splitDisplay" aria-hidden="true">
           <div class="split-label">Split</div>
           <div id="splitTime">00:00.00</div>
         </div>
-        <div class="time" id="timeDisplay"></div>
+        <div class="time" id="timeDisplay" aria-hidden="true"></div>
         <div class="time-label" id="timeLabel">Stopwatch</div>
-        <span class="drag-hint">Drag ring to set time<br>Double-click to edit</span>
+        <span class="drag-hint" aria-hidden="true">Drag ring to set time<br>Double-click to edit</span>
       </div>
     </div>
     
@@ -117,28 +160,28 @@
     
     <div class="pomo-info" id="pomoInfo">
       <div class="pomo-stat">
-        <div class="pomo-stat-value" id="pomoRound" title="Click to edit">1/4</div>
+        <div class="pomo-stat-value" id="pomoRound" role="button" tabindex="0" aria-label="Round 1 of 4. Activate to edit." title="Click to edit">1/4</div>
         <div class="pomo-stat-label">Round</div>
       </div>
       <div class="pomo-stat">
-        <div class="pomo-stat-value" id="pomoTotal" title="Click to edit">0m</div>
+        <div class="pomo-stat-value" id="pomoTotal" role="button" tabindex="0" aria-label="Focus total. Activate to edit." title="Click to edit">0m</div>
         <div class="pomo-stat-label">Focus</div>
       </div>
       <div class="pomo-stat">
-        <div class="pomo-stat-value" id="pomoBreak" title="Click to edit">05:00</div>
+        <div class="pomo-stat-value" id="pomoBreak" role="button" tabindex="0" aria-label="Break length. Activate to edit." title="Click to edit">05:00</div>
         <div class="pomo-stat-label" id="pomoBreakLabel">Break</div>
       </div>
     </div>
     
-    <div class="controls">
-      <button class="ctrl-btn" id="lapBtn" title="Lap" data-ico="flag"></button>
-      <button class="ctrl-btn primary" id="playBtn" title="Start" data-ico="play"></button>
-      <button class="ctrl-btn" id="resetBtn" title="Reset" data-ico="reset"></button>
+    <div class="controls" role="group" aria-label="Timer controls">
+      <button class="ctrl-btn" id="lapBtn" title="Lap" aria-label="Record lap" data-ico="flag"></button>
+      <button class="ctrl-btn primary" id="playBtn" title="Start" aria-label="Start" data-ico="play"></button>
+      <button class="ctrl-btn" id="resetBtn" title="Reset" aria-label="Reset" data-ico="reset"></button>
     </div>
     
   </div>
   
-  <aside class="rail rail-r" data-reveal style="--d:6">
+  <aside class="rail rail-r" aria-label="Laps and presets" data-reveal style="--d:6">
     <div class="presets hidden" id="presets"></div>
     
     <div class="laps-container hidden" id="lapsContainer">
@@ -160,51 +203,69 @@
   
   </div>
   
-  <div class="ambient-bar" id="ambientBar">
-    <button class="ambient-btn" data-sound="rain" title="Rain">🌧️</button>
-    <button class="ambient-btn" data-sound="fire" title="Fire">🔥</button>
-    <button class="ambient-btn" data-sound="waves" title="Waves">🌊</button>
-    <button class="ambient-btn" data-sound="forest" title="Forest">🌲</button>
-    <button class="ambient-btn" data-sound="cafe" title="Café">☕</button>
+  <div class="ambient-bar" id="ambientBar" role="group" aria-label="Ambient sound">
+    <button class="ambient-btn" data-sound="rain" aria-pressed="false" title="Rain">🌧️</button>
+    <button class="ambient-btn" data-sound="fire" aria-pressed="false" title="Fire">🔥</button>
+    <button class="ambient-btn" data-sound="waves" aria-pressed="false" title="Waves">🌊</button>
+    <button class="ambient-btn" data-sound="forest" aria-pressed="false" title="Forest">🌲</button>
+    <button class="ambient-btn" data-sound="cafe" aria-pressed="false" title="Café">☕</button>
   </div>
   
-  <div class="quote-container" id="quoteBox">
+  <div class="quote-container" id="quoteBox" role="note" aria-label="Quote">
     <div class="quote-text" id="quoteText"></div>
     <div class="quote-author" id="quoteAuthor"></div>
   </div>
   
-  <div class="panel-overlay" id="settingsOverlay"></div>
+  <div class="panel-overlay" id="settingsOverlay" aria-hidden="true"></div>
   
-  <div class="panel" id="settingsPanel">
+  <div class="panel" id="settingsPanel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="panel-header">
-      <h2>Settings</h2>
-      <button class="close-panel" id="closeSettings" data-ico="close"></button>
+      <h2 id="settingsTitle">Settings</h2>
+      <button class="close-panel" id="closeSettings" aria-label="Close settings" data-ico="close"></button>
     </div>
     <div class="panel-content">
       <div class="panel-tier">Essentials</div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="palette"></i>Appearance</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="palette"></i>Appearance</h3>
         <div class="setting-row">
-          <i class="row-ico" data-ico="moon"></i><span class="setting-label">Dark Mode</span>
+          <i class="row-ico" aria-hidden="true" data-ico="moon"></i><span class="setting-label">Dark Mode</span>
           <div class="toggle active" id="darkToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="expand"></i><span class="setting-label">Fullscreen</span>
+          <i class="row-ico" aria-hidden="true" data-ico="expand"></i><span class="setting-label">Fullscreen</span>
           <div class="toggle" id="fsToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="ring"></i><span class="setting-label">Progress Ring</span>
+          <i class="row-ico" aria-hidden="true" data-ico="ring"></i><span class="setting-label">Progress Ring<i class="row-sub">The sweeping arc and its head</i></span>
           <div class="toggle active" id="ringToggle"></div>
         </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="tick"></i><span class="setting-label">Dial Ticks<i class="row-sub">Sixty minute marks around the face</i></span>
+          <div class="toggle active" id="ticksToggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">Dial Numerals<i class="row-sub">Hour numbers on the face</i></span>
+          <div class="toggle" id="numeralsToggle"></div>
+        </div>
+        <div class="dep" id="numeralsDep"><div class="dep-in">
+          <div class="setting-row">
+            <i class="row-ico" aria-hidden="true" data-ico="columns"></i><span class="setting-label">Numeral Style</span>
+            <div class="seg" id="numeralSeg" role="group" aria-label="Numeral style">
+              <button class="seg-btn is-active" data-numerals="quarters">4</button>
+              <button class="seg-btn" data-numerals="all">12</button>
+              <button class="seg-btn" data-numerals="minutes">60</button>
+            </div>
+          </div>
+        </div></div>
         <div class="sel" id="themeSel">
           <div class="sel-head">
-            <i class="sel-ico" data-ico="layers"></i>
+            <i class="sel-ico" aria-hidden="true" data-ico="layers"></i>
             <div class="sel-info">
               <div class="sel-label">Visual theme</div>
               <div class="sel-value"><span class="sel-swatch sw-default" id="themeSwatch"></span><span id="themeStatus">Default</span></div>
             </div>
-            <i class="sel-arrow"></i>
+            <i class="sel-arrow" aria-hidden="true"></i>
           </div>
           <div class="sel-body"><div class="sel-inner">
         <div class="theme-grid" id="themeGrid">
@@ -218,28 +279,31 @@
           <div class="theme-opt" data-theme="retro"><div class="icon">📟</div><div class="name">Retro</div></div>
           <div class="theme-opt" data-theme="cosmic"><div class="icon">🌌</div><div class="name">Cosmic</div></div>
           <div class="theme-opt" data-theme="vivaldi"><div class="icon">🎵</div><div class="name">Vivaldi</div></div>
+          <div class="theme-opt" data-theme="bahnhof"><div class="icon">🚉</div><div class="name">Bahnhof</div></div>
+          <div class="theme-opt" data-theme="safelight"><div class="icon">🔴</div><div class="name">Safelight</div></div>
+          <div class="theme-opt" data-theme="paceclock"><div class="icon">🎛️</div><div class="name">Pace Clock</div></div>
         </div>
           </div></div>
         </div>
         <div class="sel" id="accentSel">
           <div class="sel-head">
-            <i class="sel-ico" data-ico="palette"></i>
+            <i class="sel-ico" aria-hidden="true" data-ico="palette"></i>
             <div class="sel-info">
               <div class="sel-label">Accent colour</div>
               <div class="sel-value"><span class="sel-swatch sw-accent" id="accentSwatch"></span><span id="accentStatus">Indigo</span></div>
             </div>
-            <i class="sel-arrow"></i>
+            <i class="sel-arrow" aria-hidden="true"></i>
           </div>
           <div class="sel-body"><div class="sel-inner">
             <div class="color-grid" id="colorGrid"></div>
             <div class="setting-row">
-              <i class="row-ico" data-ico="spark"></i><span class="setting-label">Custom colour</span>
+              <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Custom colour</span>
               <input type="color" class="color-picker-input" id="customColorPicker" value="#6366f1">
             </div>
           </div></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="palette"></i><span class="setting-label">Custom Base Colors<i class="row-sub">Overrides the theme palette</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="palette"></i><span class="setting-label">Custom Base Colors<i class="row-sub">Overrides the theme palette</i></span>
           <div class="toggle" id="customPaletteToggle"></div>
         </div>
         <div class="dep" id="customPaletteBlock"><div class="dep-in">
@@ -267,22 +331,22 @@
           <button class="panel-btn" id="paletteResetBtn">Reset to Theme</button>
         </div></div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="resize"></i>Dial Size</label>
-          <input type="range" class="slider" id="dialSizeSlider" min="200" max="360" value="280">
+          <label><i class="row-ico" aria-hidden="true" data-ico="resize"></i>Dial Size</label>
+          <input type="range" class="slider" id="dialSizeSlider" min="200" max="400" value="340">
           <span class="slider-val" id="dialSizeVal">280px</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="clock"></i>Clock Text</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="type"></i>Clock Text</label>
           <input type="range" class="slider" id="clockScaleSlider" min="60" max="130" value="100">
           <span class="slider-val" id="clockScaleVal">100%</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="layers"></i>Interface Text</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="layers"></i>Interface Text</label>
           <input type="range" class="slider" id="uiScaleSlider" min="85" max="125" value="100">
           <span class="slider-val" id="uiScaleVal">100%</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="ring"></i>Ring Thickness</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="target"></i>Ring Thickness</label>
           <input type="range" class="slider" id="ringThicknessSlider" min="4" max="16" value="8">
           <span class="slider-val" id="ringThicknessVal">8px</span>
         </div>
@@ -302,93 +366,101 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="columns"></i>Modes</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="columns"></i>Modes</h3>
         <p class="sub-note">Hide the ones you don't use. Drop to a single mode and the tab row goes away entirely.</p>
         <div class="setting-row">
-          <i class="row-ico" data-ico="timer"></i><span class="setting-label">Stopwatch</span>
+          <i class="row-ico" aria-hidden="true" data-ico="timer"></i><span class="setting-label">Stopwatch</span>
           <div class="toggle active" id="modeStopwatchToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="hourglass"></i><span class="setting-label">Timer</span>
+          <i class="row-ico" aria-hidden="true" data-ico="hourglass"></i><span class="setting-label">Timer</span>
           <div class="toggle active" id="modeTimerToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="tomato"></i><span class="setting-label">Pomodoro</span>
+          <i class="row-ico" aria-hidden="true" data-ico="tomato"></i><span class="setting-label">Pomodoro</span>
           <div class="toggle active" id="modePomodoroToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="clock"></i><span class="setting-label">Clock</span>
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">Clock</span>
           <div class="toggle" id="modeClockToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="play"></i><span class="setting-label">Keep Modes Running<i class="row-sub">Leaving a mode lets its clock carry on. Off: it pauses and picks up where you left it.</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Keep Modes Running<i class="row-sub">Leaving a mode lets its clock carry on. Off: it pauses and picks up where you left it.</i></span>
           <div class="toggle active" id="bgRunToggle"></div>
         </div>
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="tomato"></i>Pomodoro</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="tomato"></i>Pomodoro</h3>
         <p class="sub-note">Use MM:SS format (e.g., 25:00 or 0:30)</p>
         <div class="setting-row">
-          <i class="row-ico" data-ico="timer"></i><span class="setting-label">Work Time</span>
+          <i class="row-ico" aria-hidden="true" data-ico="timer"></i><span class="setting-label">Work Time</span>
           <input type="text" class="time-input" id="workInput" value="25:00" placeholder="MM:SS">
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="clock"></i><span class="setting-label">Break Time</span>
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">Break Time</span>
           <input type="text" class="time-input" id="breakInput" value="05:00" placeholder="MM:SS">
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="layers"></i><span class="setting-label">Use Long Breaks</span>
+          <i class="row-ico" aria-hidden="true" data-ico="layers"></i><span class="setting-label">Use Long Breaks</span>
           <div class="toggle active" id="longBreakToggle"></div>
         </div>
         <div class="dep open" id="longBreakDep"><div class="dep-in">
           <div class="setting-row">
-            <i class="row-ico" data-ico="clock"></i><span class="setting-label">Long Break</span>
+            <i class="row-ico" aria-hidden="true" data-ico="hourglass"></i><span class="setting-label">Long Break</span>
             <input type="text" class="time-input" id="longBreakInput" value="15:00" placeholder="MM:SS">
           </div>
         </div></div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="reset"></i><span class="setting-label">Rounds</span>
+          <i class="row-ico" aria-hidden="true" data-ico="reset"></i><span class="setting-label">Rounds</span>
           <input type="number" class="time-input" id="roundsInput" value="4" min="1" style="width:50px">
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="play"></i><span class="setting-label">Auto-start breaks</span>
+          <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Auto-start breaks</span>
           <div class="toggle active" id="autoBreakToggle"></div>
         </div>
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="columns"></i>Layout &amp; Elements</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="columns"></i>Layout &amp; Elements</h3>
         <div class="setting-row">
-          <i class="row-ico" data-ico="chart"></i><span class="setting-label">Show Analytics Card</span>
+          <i class="row-ico" aria-hidden="true" data-ico="chart"></i><span class="setting-label">Show Analytics Card</span>
           <div class="toggle active" id="analyticsToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="sound"></i><span class="setting-label">Show Ambient Sounds Bar</span>
+          <i class="row-ico" aria-hidden="true" data-ico="sound"></i><span class="setting-label">Show Ambient Sounds Bar</span>
           <div class="toggle active" id="ambientBarToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="quote"></i><span class="setting-label">Show Motivational Quotes</span>
+          <i class="row-ico" aria-hidden="true" data-ico="quote"></i><span class="setting-label">Show Motivational Quotes</span>
           <div class="toggle active" id="quotesToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="collapse"></i><span class="setting-label">Compact Mode<i class="row-sub">Tighter spacing throughout</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="collapse"></i><span class="setting-label">Compact Mode<i class="row-sub">Tighter spacing throughout</i></span>
           <div class="toggle" id="compactToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="columns"></i><span class="setting-label">Wide Layout<i class="row-sub">Side rails appear above 1100px</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="columns"></i><span class="setting-label">Wide Layout<i class="row-sub">Side rails appear above 1100px</i></span>
           <div class="toggle active" id="wideToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="tag"></i><span class="setting-label">Focus On Card<i class="row-sub">Tag what the current session is for</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="tag"></i><span class="setting-label">Focus On Card<i class="row-sub">Tag what the current session is for</i></span>
           <div class="toggle active" id="tagCardToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="swap"></i><span class="setting-label">Swap Rail Sides</span>
+          <i class="row-ico" aria-hidden="true" data-ico="swap"></i><span class="setting-label">Swap Rail Sides</span>
           <div class="toggle" id="railsSwapToggle"></div>
         </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="flag"></i><span class="setting-label">Split Flash on Lap<i class="row-sub">Briefly overlays the lap split on the dial face</i></span>
+          <div class="toggle" id="splitToggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Theme Signature<i class="row-sub">The one big effect a theme is built around — Safelight's pool of light, Pace Clock's 60 lamps, Bahnhof's held second</i></span>
+          <div class="toggle active" id="signatureToggle"></div>
+        </div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="target"></i>Daily Goal</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="target"></i>Daily Goal</label>
           <input type="range" class="slider" id="goalSlider" min="15" max="480" step="15" value="120">
           <span class="slider-val" id="goalVal">2h</span>
         </div>
@@ -397,9 +469,9 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="sound"></i>Sound &amp; Notifications</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="sound"></i>Sound &amp; Notifications</h3>
         <div class="setting-row">
-          <i class="row-ico" data-ico="bell"></i><span class="setting-label">Alert Sound</span>
+          <i class="row-ico" aria-hidden="true" data-ico="bell"></i><span class="setting-label">Alert Sound</span>
           <div class="toggle active" id="soundToggle"></div>
         </div>
         <div class="dep open" id="soundDep"><div class="dep-in">
@@ -412,21 +484,21 @@
             <div class="sound-opt" data-sound="none">🔇 None</div>
           </div>
           <div class="slider-row" style="margin-top:12px">
-            <label><i class="row-ico" data-ico="sound"></i>Volume</label>
+            <label><i class="row-ico" aria-hidden="true" data-ico="sound"></i>Volume</label>
             <input type="range" class="slider" id="volSlider" min="0" max="100" value="50">
             <span class="slider-val" id="volVal">50%</span>
           </div>
         </div></div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="clock"></i><span class="setting-label">Tick Sound</span>
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">Tick Sound</span>
           <div class="toggle" id="tickToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="spark"></i><span class="setting-label">Confetti</span>
+          <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Confetti</span>
           <div class="toggle active" id="confettiToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="bell"></i><span class="setting-label">Browser Notifications<i class="row-sub">Alerts you even when this tab is hidden</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="notifications"></i><span class="setting-label">Browser Notifications<i class="row-sub">Alerts you even when this tab is hidden</i></span>
           <div class="toggle" id="notifToggle"></div>
         </div>
       </div>
@@ -434,31 +506,31 @@
       <div class="panel-tier">Advanced</div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="clock"></i>Clock</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="clock"></i>Clock</h3>
         <div class="dep" id="clockDep"><div class="dep-in">
           <p class="sub-note">Which time the dial reads. Local follows this device.</p>
           <div class="clock-grid" id="tzGrid"></div>
           <div class="setting-row">
-            <i class="row-ico" data-ico="calendar"></i><span class="setting-label">Show Date</span>
+            <i class="row-ico" aria-hidden="true" data-ico="calendar"></i><span class="setting-label">Show Date</span>
             <div class="toggle active" id="clockDateToggle"></div>
           </div>
         </div></div>
         <p class="sub-note" id="clockOffNote">Turn on Clock under Modes to use the dial as a clock.</p>
         <div class="setting-row">
-          <i class="row-ico" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
           <div class="toggle" id="hour12Toggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="ring"></i><span class="setting-label">Show Seconds</span>
+          <i class="row-ico" aria-hidden="true" data-ico="ring"></i><span class="setting-label">Show Seconds</span>
           <div class="toggle" id="clockSecondsToggle"></div>
         </div>
         <p class="sub-note">Format applies to the clock face and the world clocks.</p>
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="globe"></i>World Clocks</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="globe"></i>World Clocks</h3>
         <div class="setting-row">
-          <i class="row-ico" data-ico="globe"></i><span class="setting-label">Show World Clocks</span>
+          <i class="row-ico" aria-hidden="true" data-ico="globe"></i><span class="setting-label">Show World Clocks</span>
           <div class="toggle active" id="worldToggle"></div>
         </div>
         <div class="dep open" id="worldDep"><div class="dep-in">
@@ -468,7 +540,7 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="image"></i>Background</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="image"></i>Background</h3>
         <p class="sub-note">Use any local image or video. Files stay on this device.</p>
         <div class="bg-controls">
           <button class="bg-btn" id="bgPickBtn">Choose file…</button>
@@ -477,12 +549,12 @@
         <input type="file" id="bgFile" accept="image/*,video/*,.mp4,.webm,.mov,.mkv,.gif,.avif" style="display:none">
         <div class="bg-name" id="bgName">No background set</div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="moon"></i>Dim</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="moon"></i>Dim</label>
           <input type="range" class="slider" id="bgDimSlider" min="0" max="80" value="35">
           <span class="slider-val" id="bgDimVal">35%</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" data-ico="eye"></i>Blur</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="eye"></i>Blur</label>
           <input type="range" class="slider" id="bgBlurSlider" min="0" max="30" value="0">
           <span class="slider-val" id="bgBlurVal">0px</span>
         </div>
@@ -490,11 +562,11 @@
 
         <div class="bg-video" id="bgVideoCtl" style="display:none">
           <div class="setting-row">
-            <i class="row-ico" data-ico="sound"></i><span class="setting-label">Video Sound</span>
+            <i class="row-ico" aria-hidden="true" data-ico="sound"></i><span class="setting-label">Video Sound</span>
             <div class="toggle" id="bgSoundToggle"></div>
           </div>
           <div class="slider-row">
-            <label><i class="row-ico" data-ico="sound"></i>Video Vol</label>
+            <label><i class="row-ico" aria-hidden="true" data-ico="volume"></i>Video Vol</label>
             <input type="range" class="slider" id="bgVolSlider" min="0" max="100" value="50">
             <span class="slider-val" id="bgVolVal">50%</span>
           </div>
@@ -507,7 +579,7 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="quote"></i>Quotes</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="quote"></i>Quotes</h3>
         <div class="quotes-list" id="quotesList"></div>
         <div class="quote-add-row">
           <input type="text" class="time-input quote-input" id="newQuoteText" placeholder="Quote text">
@@ -519,7 +591,7 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="database"></i>Data Management</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="database"></i>Data Management</h3>
         <div class="data-btn-row">
           <button class="panel-btn" id="exportSettingsBtn">Export Settings</button>
           <button class="panel-btn" id="importSettingsBtn">Import Settings</button>
@@ -533,7 +605,7 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="keyboard"></i>Keyboard Shortcuts</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="keyboard"></i>Keyboard Shortcuts</h3>
         <div class="shortcut-row"><span>Start/Pause</span><input class="shortcut-input" data-action="toggle" value="Space" readonly></div>
         <div class="shortcut-row"><span>Lap</span><input class="shortcut-input" data-action="lap" value="L" readonly></div>
         <div class="shortcut-row"><span>Reset</span><input class="shortcut-input" data-action="reset" value="R" readonly></div>
@@ -543,29 +615,29 @@
       </div>
       
       <div class="panel-section">
-        <h3><i class="sec-ico" data-ico="sliders"></i>Advanced</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="sliders"></i>Advanced</h3>
         <div class="setting-row">
-          <i class="row-ico" data-ico="spark"></i><span class="setting-label">Motion<i class="row-sub">Full ignores your system reduce-motion setting</i></span>
-          <div class="seg" id="motionSeg">
+          <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Motion<i class="row-sub">Full ignores your system reduce-motion setting</i></span>
+          <div class="seg" id="motionSeg" role="group" aria-label="Motion">
             <button class="seg-btn" data-motion="auto">Auto</button>
             <button class="seg-btn" data-motion="full">Full</button>
             <button class="seg-btn" data-motion="none">Off</button>
           </div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="bulb"></i><span class="setting-label">Tips &amp; Hints</span>
+          <i class="row-ico" aria-hidden="true" data-ico="bulb"></i><span class="setting-label">Tips &amp; Hints</span>
           <div class="toggle active" id="tipsToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="mic"></i><span class="setting-label">Voice Control<i class="row-sub">Off hides the mic button entirely</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="mic"></i><span class="setting-label">Voice Control<i class="row-sub">Off hides the mic button entirely</i></span>
           <div class="toggle" id="voiceToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="eye"></i><span class="setting-label">Keep Screen Awake<i class="row-sub">Prevents the display sleeping</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="eye"></i><span class="setting-label">Keep Screen Awake<i class="row-sub">Prevents the display sleeping</i></span>
           <div class="toggle active" id="wakeToggle"></div>
         </div>
         <div class="setting-row">
-          <i class="row-ico" data-ico="shield"></i><span class="setting-label">Confirm Reset<i class="row-sub">Ask before clearing a running session</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="shield"></i><span class="setting-label">Confirm Reset<i class="row-sub">Ask before clearing a running session</i></span>
           <div class="toggle" id="confirmToggle"></div>
         </div>
         <div class="setting-row">
@@ -578,20 +650,20 @@
     </div>
   </div>
   
-  <div class="dash" id="dashboard">
+  <div class="dash" id="dashboard" role="dialog" aria-modal="true" aria-labelledby="dashTitle">
     <div class="dash-head">
       <div>
-        <h2>Dashboard</h2>
+        <h2 id="dashTitle">Dashboard</h2>
         <p class="dash-sub" id="dashSub">No sessions yet</p>
       </div>
       <div class="panel-header-actions">
         <button class="panel-btn danger" id="clearHistoryBtn" disabled>Clear</button>
-        <button class="close-panel" id="closeHistory" data-ico="close"></button>
+        <button class="close-panel" id="closeHistory" aria-label="Close dashboard" data-ico="close"></button>
       </div>
     </div>
     
     <div class="dash-body">
-      <div class="dash-range" id="dashRange">
+      <div class="dash-range" id="dashRange" role="group" aria-label="Date range">
         <button class="chip" data-range="7">7 days</button>
         <button class="chip" data-range="30">30 days</button>
         <button class="chip active" data-range="0">All time</button>
@@ -612,15 +684,15 @@
       <div class="dash-card">
         <h3>Activity <span class="dash-note" id="heatNote"></span></h3>
         <div class="heat-wrap">
-          <div class="heat-days"><span>M</span><span>W</span><span>F</span></div>
+          <div class="heat-days" aria-hidden="true"><span>M</span><span>W</span><span>F</span></div>
           <div class="heat" id="heatmap"></div>
         </div>
-        <div class="heat-key"><span>Less</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>More</span></div>
+        <div class="heat-key" aria-hidden="true"><span>Less</span><i class="l0"></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i><span>More</span></div>
       </div>
       
       <div class="dash-card">
         <h3>Sessions</h3>
-        <div class="dash-filters" id="dashFilters">
+        <div class="dash-filters" id="dashFilters" role="group" aria-label="Filter sessions by mode">
           <button class="chip active" data-filter="all">All</button>
           <button class="chip" data-filter="stopwatch">Stopwatch</button>
           <button class="chip" data-filter="timer">Timer</button>
@@ -631,20 +703,22 @@
     </div>
   </div>
   
-  <div class="overlay-scrim" id="dashScrim"></div>
+  <div class="overlay-scrim" id="dashScrim" aria-hidden="true"></div>
   
-  <div class="keys-overlay" id="keysOverlay">
+  <div class="keys-overlay" id="keysOverlay" role="dialog" aria-modal="true" aria-labelledby="keysTitle">
     <div class="keys-box">
-      <h2>Keyboard Shortcuts</h2>
+      <h2 id="keysTitle">Keyboard Shortcuts</h2>
       <div class="keys-grid" id="keysGrid"></div>
       <p class="sub-note">Press <kbd>?</kbd> to toggle · <kbd>Esc</kbd> to close</p>
     </div>
   </div>
   
-  <div class="palette" id="palette">
+  <div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="Command palette">
     <div class="palette-box">
-      <input type="text" id="paletteInput" placeholder="Type a command…" autocomplete="off" spellcheck="false">
-      <div class="palette-list" id="paletteList"></div>
+      <input type="text" id="paletteInput" placeholder="Type a command…" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="true" aria-controls="paletteList"
+             aria-autocomplete="list" aria-label="Search commands">
+      <div class="palette-list" id="paletteList" role="listbox" aria-label="Commands"></div>
     </div>
   </div>
   

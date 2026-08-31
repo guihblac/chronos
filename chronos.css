@@ -17,8 +17,8 @@
 @property --edge   { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,.07); }
 
 body {
-  transition: --bg .42s var(--e-out), --card .42s var(--e-out), --border .42s var(--e-out),
-              --text .42s var(--e-out), --text2 .42s var(--e-out), --edge .42s var(--e-out);
+  transition: --bg var(--t3) var(--e-out), --card var(--t3) var(--e-out), --border var(--t3) var(--e-out),
+              --text var(--t3) var(--e-out), --text2 var(--t3) var(--e-out), --edge var(--t3) var(--e-out);
 }
 
 /* ========== TOKENS ========== */
@@ -44,6 +44,37 @@ body {
   --e-out: cubic-bezier(0.16, 1, 0.3, 1);
   --e-io: cubic-bezier(0.76, 0, 0.24, 1);
   --e-spring: cubic-bezier(0.34, 1.35, 0.64, 1);
+
+  /* Duration scale. The sheet previously carried 23 distinct transition
+     durations, which is what made a theme flip retint in visible waves — two
+     elements changing the same colour over .18s and .7s read as a sweep, not a
+     transition. Four steps, one job each:
+       --t1 micro      pressed/hover states, things under the finger
+       --t2 state      a control changing what it means (on/off, selected)
+       --t3 surface    colour retint, panels, anything the eye tracks as a plane
+       --t4 stage      dial geometry, fullscreen, deliberate choreography
+     Keyframe animations are deliberately NOT on this scale — several are paired
+     with a matching setTimeout in the JS and have to keep their exact length. */
+  --t1: .16s;
+  --t2: .28s;
+  --t3: .42s;
+  --t4: .7s;
+
+  /* Blur scale. Blur is expensive and, applied to everything, reads as a
+     default rather than a decision — so only two surfaces get it by default:
+     the scrim behind a modal, and the modal itself. Chrome (world clocks,
+     ambient bar, rail cards, chips, laps) resolves to `none` and sits on solid
+     --card instead. Themes whose whole premise is glass opt back in below. */
+  --blur-scrim: blur(3px);
+  --blur-surface: blur(20px);
+  --blur-chrome: none;
+
+  /* Font stacks. Named once so a missing webfont degrades to a deliberate
+     fallback rather than to whatever the platform's default happens to be —
+     this is what the app looks like offline before the SW cache warms. */
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: 'Orbitron', var(--font-ui);
   --edge: rgba(255,255,255,.07);
   --lift: inset 0 1px 0 var(--edge), 0 1px 2px rgba(0,0,0,.24), 0 10px 24px rgba(0,0,0,.22), 0 32px 64px rgba(0,0,0,.30);
   --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent), 0 22px 44px -18px color-mix(in srgb, var(--accent) 28%, transparent);
@@ -86,7 +117,12 @@ body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  transition: background-color 0.4s var(--ease), border-color 0.4s var(--ease), color 0.4s var(--ease), box-shadow 0.4s var(--ease), opacity 0.4s var(--ease);
+  /* Colour only. box-shadow and opacity used to be here too, but a universal
+     shadow transition repaints every layer it touches, and on a theme swap that
+     is every element on the page at once — which is what made the dark toggle
+     feel slow rather than smooth. Components that genuinely animate a shadow or
+     a fade declare it themselves. */
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease);
 }
 
 html {
@@ -96,10 +132,11 @@ html {
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-ui);
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   padding: var(--s3) var(--s4) 120px;
 }
@@ -191,7 +228,7 @@ body.visual-sunset::before {
   height: 1px;
   width: 0;
   background: var(--accent);
-  transition: width .85s var(--e-out) .1s;
+  transition: width .85s var(--e-out) var(--t1);
 }
 
 #boot.go .bw { opacity: 1; transform: none; }
@@ -267,7 +304,7 @@ body.visual-sunset::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color .35s var(--e-out), border-color .35s var(--e-out), color .35s, box-shadow .5s var(--e-out), transform .5s var(--e-spring);
+  transition: background-color var(--t2) var(--e-out), border-color var(--t2) var(--e-out), color var(--t2), box-shadow var(--t3) var(--e-out), transform var(--t3) var(--e-spring);
 }
 
 .icon-btn:hover {
@@ -293,7 +330,7 @@ body.visual-sunset::before {
 
 .world-clock {
   text-align: center;
-  transition: opacity .35s var(--e-out);
+  transition: opacity var(--t2) var(--e-out);
   opacity: .8;
 }
 
@@ -307,7 +344,7 @@ body.visual-sunset::before {
 
 .world-clock-time {
   font-weight: 600;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 /* ========== ANALYTICS MINI ========== */
@@ -316,8 +353,8 @@ body.visual-sunset::before {
   padding: 18px;
   font-size: calc(12px * var(--ui-scale));
   box-shadow: var(--lift);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   background: color-mix(in srgb, var(--accent) 5%, color-mix(in srgb, var(--card) 80%, transparent));
   border: 1px solid var(--border);
 }
@@ -360,7 +397,7 @@ body.visual-sunset::before {
 
 .analytics-value {
   font-weight: 600;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 /* ========== STAGE (THREE-ZONE LAYOUT) ==========
@@ -451,12 +488,15 @@ body.visual-sunset::before {
   box-shadow: 0 4px 16px -2px color-mix(in srgb, var(--accent) 55%, transparent);
   z-index: 0;
   pointer-events: none;
-  transition: transform .6s var(--e-spring), width .6s var(--e-spring), height .3s var(--e-out), top .3s var(--e-out), background-color .4s var(--e-out), box-shadow .4s var(--e-out);
+  transition: transform var(--t4) var(--e-spring), width var(--t4) var(--e-spring), height var(--t2) var(--e-out), top var(--t2) var(--e-out), background-color var(--t3) var(--e-out), box-shadow var(--t3) var(--e-out);
 }
 
 .mode-tab {
   position: relative;
   z-index: 1;
+  /* Never wrap: #tabInd is sized from offsetHeight, so a two-line tab also
+     stretches the indicator pill and the whole row with it. */
+  white-space: nowrap;
   padding: 10px 20px;
   border: none;
   background: transparent;
@@ -466,7 +506,7 @@ body.visual-sunset::before {
   font-size: calc(14px * var(--ui-scale));
   font-weight: 500;
   letter-spacing: .01em;
-  transition: all 0.3s var(--ease);
+  transition: all var(--t2) var(--ease);
 }
 
 .mode-tab.active {
@@ -499,8 +539,15 @@ body.visual-sunset::before {
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
   box-shadow: var(--lift);
   will-change: transform;
+  /* Pointer events replaced the old touchmove listener, and preventDefault on
+     a pointerdown does not stop a touch scroll — the browser decides that
+     before the event fires. This is what actually keeps a drag on the ring
+     from scrolling the page underneath it. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   transition-property: background-color, border-color, box-shadow, width, height;
-  transition-duration: 0.6s;
+  transition-duration: var(--t4);
   transition-timing-function: var(--ease);
 }
 
@@ -542,7 +589,7 @@ body.visual-sunset::before {
   stroke: url(#ringGrad);
   stroke-width: var(--ring-w);
   stroke-linecap: round;
-  transition: stroke-dashoffset .12s linear, opacity .5s var(--e-out), filter .6s var(--e-out);
+  transition: stroke-dashoffset var(--t1) linear, opacity var(--t3) var(--e-out), filter var(--t4) var(--e-out);
 }
 
 /* Deliberately NOT keyed to stroke colour (accent vs accent2 per mode) — that
@@ -567,12 +614,12 @@ body.visual-sunset::before {
 
 .ring-head {
   fill: var(--accent2);
-  transition: opacity .4s var(--e-out);
+  transition: opacity var(--t3) var(--e-out);
   filter: drop-shadow(0 0 7px var(--accent));
 }
 
 #ticks {
-  transition: opacity .5s var(--e-out);
+  transition: opacity var(--t3) var(--e-out);
 }
 
 #ticks.hidden { opacity: 0; }
@@ -590,8 +637,8 @@ body.visual-sunset::before {
 
 /* ========== TIME DISPLAY ========== */
 .time {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: calc(var(--dial-d) * 0.2214 * var(--clock-scale));
+  font-family: var(--font-mono);
+  font-size: calc(var(--dial-d) * 0.185 * var(--clock-scale));
   font-weight: 250;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -600,13 +647,13 @@ body.visual-sunset::before {
   cursor: pointer;
   /* Same duration AND same curve as .dial's width/height, or the text visibly
      races the dial when --dial-d changes (--e-out front-loads, --ease doesn't). */
-  transition: font-size .6s var(--ease), color .4s var(--ease), text-shadow .6s var(--e-out);
+  transition: font-size var(--t4) var(--ease), color var(--t3) var(--ease), text-shadow var(--t4) var(--e-out);
   z-index: 2;
 }
 
 /* Hour-length strings ("0:00:00.00") need to step down to stay inside the dial */
 .time.long {
-  font-size: calc(var(--dial-d) * 0.15 * var(--clock-scale));
+  font-size: calc(var(--dial-d) * 0.128 * var(--clock-scale));
 }
 
 .time .ms {
@@ -676,10 +723,11 @@ body.visual-sunset::before {
   padding: 6px 14px;
   border-radius: 20px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  backdrop-filter: blur(6px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   opacity: 0;
   transform: translateY(-10px);
-  transition: opacity .5s var(--e-out), transform .5s var(--e-out);
+  transition: opacity var(--t3) var(--e-out), transform var(--t3) var(--e-out);
   z-index: 2;
 }
 
@@ -695,7 +743,7 @@ body.visual-sunset::before {
 }
 
 #splitTime {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(18px * var(--ui-scale));
   color: var(--accent);
 }
@@ -711,7 +759,7 @@ body.visual-sunset::before {
   letter-spacing: .08em;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .6s var(--e-out);
+  transition: opacity var(--t4) var(--e-out);
   z-index: 2;
 }
 
@@ -728,16 +776,16 @@ body.visual-sunset::before {
    .visual-* theme rules and placed before that section in source order,
    so themes that set their own .time font-family still win the tie. */
 .font-sans .time {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-ui);
   font-weight: 300;
 }
 
 .font-display .time {
-  font-family: 'Orbitron', sans-serif;
+  font-family: var(--font-display);
 }
 
 .font-custom .time {
-  font-family: var(--time-font-custom, 'JetBrains Mono', monospace);
+  font-family: var(--time-font-custom, var(--font-mono));
 }
 
 /* ========== POMO INFO ========== */
@@ -756,11 +804,11 @@ body.visual-sunset::before {
 }
 
 .pomo-stat-value {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(24px * var(--ui-scale));
   font-weight: 600;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color var(--t1);
 }
 
 .pomo-stat-value:hover {
@@ -780,7 +828,7 @@ body.visual-sunset::before {
   display: flex;
   gap: var(--s4);
   margin: var(--s5) 0 0;
-  transition: opacity .4s var(--e-out);
+  transition: opacity var(--t3) var(--e-out);
 }
 
 .ctrl-btn {
@@ -796,7 +844,7 @@ body.visual-sunset::before {
   align-items: center;
   justify-content: center;
   box-shadow: var(--lift);
-  transition: background-color .35s var(--e-out), border-color .35s var(--e-out), color .35s, box-shadow .5s var(--e-out), transform .5s var(--e-spring);
+  transition: background-color var(--t2) var(--e-out), border-color var(--t2) var(--e-out), color var(--t2), box-shadow var(--t3) var(--e-out), transform var(--t3) var(--e-spring);
 }
 
 .ctrl-btn:hover {
@@ -861,7 +909,7 @@ body.visual-sunset::before {
   cursor: pointer;
   font-size: calc(13px * var(--ui-scale));
   letter-spacing: .04em;
-  transition: background-color .3s var(--e-out), border-color .3s var(--e-out), color .3s, transform .5s var(--e-spring);
+  transition: background-color var(--t2) var(--e-out), border-color var(--t2) var(--e-out), color var(--t2), transform var(--t3) var(--e-spring);
 }
 
 .preset-btn:hover {
@@ -941,7 +989,7 @@ body.visual-sunset::before {
 }
 
 .lap-stat-val {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(16px * var(--ui-scale));
   font-weight: 600;
 }
@@ -979,7 +1027,7 @@ body.visual-sunset::before {
   margin-bottom: 8px;
   border: 1px solid var(--border);
   font-size: calc(14px * var(--ui-scale));
-  transition: transform .45s var(--e-out), border-color .3s var(--e-out), background-color .3s;
+  transition: transform var(--t3) var(--e-out), border-color var(--t2) var(--e-out), background-color var(--t2);
 }
 
 .lap-item:hover {
@@ -993,7 +1041,7 @@ body.visual-sunset::before {
 }
 
 .lap-split, .lap-total {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 .lap-split {
@@ -1022,8 +1070,8 @@ body.visual-sunset::before {
   border: 1px solid var(--border);
   z-index: 10;
   box-shadow: var(--lift);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
 }
 
 .ambient-btn {
@@ -1035,7 +1083,7 @@ body.visual-sunset::before {
   font-size: calc(18px * var(--ui-scale));
   cursor: pointer;
   opacity: 0.6;
-  transition: opacity .3s var(--e-out), background-color .3s, box-shadow .4s var(--e-out), transform .5s var(--e-spring);
+  transition: opacity var(--t2) var(--e-out), background-color var(--t2), box-shadow var(--t3) var(--e-out), transform var(--t3) var(--e-spring);
 }
 
 .ambient-btn:hover {
@@ -1125,11 +1173,11 @@ body.visual-sunset::before {
   right: 0;
   bottom: 0;
   background: rgba(0,0,0,.6);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: var(--blur-scrim);
+  -webkit-backdrop-filter: var(--blur-scrim);
   opacity: 0;
   visibility: hidden;
-  transition: all 0.3s var(--ease);
+  transition: all var(--t2) var(--ease);
   z-index: 50;
 }
 
@@ -1146,11 +1194,11 @@ body.visual-sunset::before {
   max-width: 90vw;
   height: 100%;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: var(--blur-surface);
+  -webkit-backdrop-filter: var(--blur-surface);
   border-left: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   z-index: 100;
-  transition: right .65s var(--e-out);
+  transition: right var(--t4) var(--e-out);
   box-shadow: inset 1px 0 0 var(--edge), -30px 0 70px rgba(0,0,0,.4);
   display: flex;
   flex-direction: column;
@@ -1189,7 +1237,7 @@ body.visual-sunset::before {
   color: var(--text2);
   font-size: calc(12px * var(--ui-scale));
   cursor: pointer;
-  transition: all 0.2s var(--ease);
+  transition: all var(--t1) var(--ease);
 }
 
 .panel-btn:disabled {
@@ -1211,7 +1259,7 @@ body.visual-sunset::before {
   color: var(--text);
   cursor: pointer;
   font-size: calc(16px * var(--ui-scale));
-  transition: background-color .3s, color .3s, transform .5s var(--e-spring);
+  transition: background-color var(--t2), color var(--t2), transform var(--t3) var(--e-spring);
 }
 
 .close-panel:hover { background: var(--accent); color: #fff; }
@@ -1289,7 +1337,7 @@ body.visual-sunset::before {
   border-radius: 12px;
   cursor: pointer;
   position: relative;
-  transition: background 0.3s var(--ease);
+  transition: background var(--t2) var(--ease);
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -1304,7 +1352,7 @@ body.visual-sunset::before {
   top: 2px;
   left: 2px;
   box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 2px 6px rgba(0,0,0,.25);
-  transition: transform .5s var(--e-spring), width .25s var(--e-out);
+  transition: transform var(--t3) var(--e-spring), width var(--t2) var(--e-out);
 }
 
 .toggle:active::after { width: 24px; }
@@ -1349,7 +1397,7 @@ body.visual-sunset::before {
 }
 
 .theme-opt, .sound-opt, .clock-opt, .color-opt {
-  transition: background-color .3s var(--e-out), border-color .3s var(--e-out), color .3s, transform .45s var(--e-spring), box-shadow .3s;
+  transition: background-color var(--t2) var(--e-out), border-color var(--t2) var(--e-out), color var(--t2), transform var(--t3) var(--e-spring), box-shadow var(--t2);
 }
 
 .theme-opt {
@@ -1475,12 +1523,12 @@ body.visual-sunset::before {
   text-align: center;
   font-size: calc(13px * var(--ui-scale));
   cursor: pointer;
-  transition: background-color .3s var(--e-out), border-color .3s var(--e-out), color .3s;
+  transition: background-color var(--t2) var(--e-out), border-color var(--t2) var(--e-out), color var(--t2);
 }
 
-.font-opt[data-font="mono"] { font-family: 'JetBrains Mono', monospace; }
-.font-opt[data-font="sans"] { font-family: 'Inter', sans-serif; }
-.font-opt[data-font="display"] { font-family: 'Orbitron', sans-serif; }
+.font-opt[data-font="mono"] { font-family: var(--font-mono); }
+.font-opt[data-font="sans"] { font-family: var(--font-ui); }
+.font-opt[data-font="display"] { font-family: var(--font-display); }
 
 .font-opt:hover { border-color: var(--accent); }
 
@@ -1568,7 +1616,7 @@ body.visual-sunset::before {
 
 .slider-val {
   font-size: calc(13px * var(--ui-scale));
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   min-width: 40px;
   text-align: right;
 }
@@ -1607,7 +1655,7 @@ body.visual-sunset::before {
   color: var(--text2);
   font-size: calc(12px * var(--ui-scale));
   cursor: pointer;
-  transition: border-color .2s var(--e-out), color .2s;
+  transition: border-color var(--t1) var(--e-out), color var(--t1);
 }
 
 .order-btn:not(:disabled):hover {
@@ -1726,7 +1774,7 @@ body.visual-sunset::before {
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text2);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(11px * var(--ui-scale));
   resize: vertical;
 }
@@ -1743,7 +1791,7 @@ body.visual-sunset::before {
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(12px * var(--ui-scale));
   resize: vertical;
 }
@@ -1764,7 +1812,7 @@ body.visual-sunset::before {
   font-size: calc(14px * var(--ui-scale));
   cursor: pointer;
   margin-top: 20px;
-  transition: all 0.2s var(--ease);
+  transition: all var(--t1) var(--ease);
 }
 
 .reset-btn:hover {
@@ -1787,7 +1835,7 @@ body.visual-sunset::before {
   border: 1px solid var(--border);
   border-radius: 10px;
   margin-bottom: 10px;
-  transition: transform .45s var(--e-out), border-color .3s var(--e-out), background-color .3s;
+  transition: transform var(--t3) var(--e-out), border-color var(--t2) var(--e-out), background-color var(--t2);
 }
 
 .history-item:hover {
@@ -1808,7 +1856,7 @@ body.visual-sunset::before {
 }
 
 .history-duration {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(20px * var(--ui-scale));
   font-weight: 600;
 }
@@ -1893,7 +1941,7 @@ body.fullscreen {
 
 .fullscreen .controls {
   opacity: 0;
-  transition: opacity 0.4s var(--ease);
+  transition: opacity var(--t3) var(--ease);
 }
 
 .fullscreen .controls:hover {
@@ -1902,7 +1950,7 @@ body.fullscreen {
 
 .fullscreen .ring-progress {
   opacity: 0.3;
-  transition: all 0.6s var(--ease);
+  transition: all var(--t4) var(--ease);
 }
 
 .fullscreen .rail,
@@ -1917,7 +1965,7 @@ body.fullscreen {
 
 .fullscreen .ambient-bar {
   opacity: 0;
-  transition: opacity 0.4s var(--ease);
+  transition: opacity var(--t3) var(--ease);
 }
 
 .fullscreen .ambient-bar:hover {
@@ -1947,7 +1995,7 @@ body.fullscreen {
 .fs-out .dial-wrap {
   will-change: transform;
   transform-origin: 50% 50%;
-  transition: transform .6s var(--ease);
+  transition: transform var(--t4) var(--ease);
 }
 
 .fs-out .top-bar,
@@ -2001,15 +2049,15 @@ body.fullscreen {
 }
 
 .visual-minimal .time {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-ui);
   font-weight: 200;
-  font-size: calc(var(--dial-d) * 0.2286);
+  font-size: calc(var(--dial-d) * 0.19);
   letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
 }
 
 .visual-minimal .time.long {
-  font-size: calc(var(--dial-d) * 0.1643);
+  font-size: calc(var(--dial-d) * 0.135);
 }
 
 .visual-minimal .time .ms {
@@ -2060,8 +2108,29 @@ body.fullscreen {
 .visual-minimal .analytics-mini,
 .visual-minimal .ambient-bar,
 .visual-minimal .laps-stats,
-.visual-minimal .lap-item {
+.visual-minimal .lap-item,
+.visual-minimal .tag-card,
+.visual-minimal .quote-card {
   background: transparent;
+}
+
+/* Same treatment the laps list gets: a single rule underneath, no radius, no
+   lift. The accent tint in the base fill is the other thing that made it read
+   as a different material. */
+.visual-minimal .tag-card,
+.visual-minimal .quote-card {
+  border-width: 0 0 1px 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.visual-minimal .tag-chip {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .visual-minimal .lap-item,
@@ -2082,7 +2151,7 @@ body.fullscreen {
   50% { background-position: 100% 50%; }
 }
 
-.visual-aurora::before {
+.visual-aurora.signature::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -2122,7 +2191,7 @@ body.fullscreen {
 .visual-matrix .time,
 .visual-matrix .pomo-stat-value {
   color: #0f0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-shadow: 0 0 10px #0f0;
 }
 
@@ -2163,7 +2232,7 @@ body.fullscreen {
   backdrop-filter: blur(6px);
 }
 
-.visual-sunset .dial::before {
+.visual-sunset.signature .dial::before {
   content: '';
   position: absolute;
   inset: -14%;
@@ -2247,11 +2316,19 @@ body.fullscreen {
 }
 
 /* ---------- Glass — bright frosted panes over colour ---------- */
+/* Blur is off on chrome by default (see --blur-chrome). These two themes are
+   *about* the substrate showing through, so they're the one place it's a
+   decision rather than a default — they opt back in for themselves only. */
+.visual-glass,
+.visual-aurora {
+  --blur-chrome: blur(14px);
+}
+
 .visual-glass {
   background: #0d1018;
 }
 
-.visual-glass::before {
+.visual-glass.signature::before {
   content: '';
   position: fixed;
   inset: -25%;
@@ -2308,7 +2385,7 @@ body.fullscreen {
   box-shadow: inset 0 3px 14px rgba(0,0,0,0.45), 0 6px 0 #2c2f26;
 }
 
-.visual-retro .dial::after {
+.visual-retro.signature .dial::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -2360,8 +2437,8 @@ body.fullscreen {
   background: radial-gradient(ellipse at 50% 40%, #171436 0%, #08060f 60%, #000 100%);
 }
 
-.visual-cosmic::before,
-.visual-cosmic::after {
+.visual-cosmic.signature::before,
+.visual-cosmic.signature::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -2427,7 +2504,7 @@ body.fullscreen {
 .visual-vivaldi .mode-tab,
 .visual-vivaldi .time-label,
 .visual-vivaldi .pomo-stat-label {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
   font-size: calc(11px * var(--ui-scale));
   letter-spacing: 1.5px;
@@ -2490,7 +2567,7 @@ body.fullscreen {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(26px * var(--ui-scale));
   font-weight: 300;
   letter-spacing: -0.03em;
@@ -2534,7 +2611,7 @@ body.fullscreen {
   min-height: 2px;
   border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 30%, transparent);
-  transition: height .7s var(--e-out), background-color .3s;
+  transition: height var(--t4) var(--e-out), background-color var(--t2);
 }
 
 .mw-bar.today {
@@ -2548,8 +2625,8 @@ body.fullscreen {
   border-radius: 16px;
   padding: 18px;
   box-shadow: var(--lift);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   background: color-mix(in srgb, var(--accent) 5%, color-mix(in srgb, var(--card) 80%, transparent));
   border: 1px solid var(--border);
 }
@@ -2596,7 +2673,7 @@ body.fullscreen {
   color: var(--text2);
   font-size: calc(11px * var(--ui-scale));
   cursor: pointer;
-  transition: border-color .25s var(--e-out), color .25s;
+  transition: border-color var(--t2) var(--e-out), color var(--t2);
 }
 
 .tag-chip:hover { border-color: var(--accent); color: var(--accent); }
@@ -2616,7 +2693,7 @@ body.fullscreen {
   height: 9px;
   border-radius: 50%;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  transition: background-color .5s var(--e-out), transform .5s var(--e-spring), box-shadow .5s var(--e-out);
+  transition: background-color var(--t3) var(--e-out), transform var(--t3) var(--e-spring), box-shadow var(--t3) var(--e-out);
 }
 
 .pip.done {
@@ -2655,13 +2732,13 @@ body.fullscreen {
   height: 100%;
   border-radius: 2px;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
-  transition: width .6s var(--e-out), background-color .4s var(--ease);
+  transition: width var(--t4) var(--e-out), background-color var(--t3) var(--ease);
 }
 
 .phase-break .pip-fill { background: var(--success); }
 
 .pip-count {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(11px * var(--ui-scale));
   color: var(--text2);
   font-variant-numeric: tabular-nums;
@@ -2682,7 +2759,7 @@ body.fullscreen {
   z-index: 0;
   border-radius: 8px 0 0 8px;
   background: color-mix(in srgb, var(--accent) 13%, transparent);
-  transition: width .6s var(--e-out);
+  transition: width var(--t4) var(--e-out);
 }
 
 .lap-item.is-best .lap-bar { background: color-mix(in srgb, var(--success) 15%, transparent); }
@@ -2706,7 +2783,7 @@ body.fullscreen {
   border-right: 1.5px solid var(--text2);
   border-bottom: 1.5px solid var(--text2);
   transform: rotate(45deg) translateY(-1px);
-  transition: transform .4s var(--e-spring);
+  transition: transform var(--t3) var(--e-spring);
   flex-shrink: 0;
 }
 
@@ -2719,7 +2796,7 @@ body.fullscreen {
 .sec-body {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows .45s var(--e-out), opacity .35s var(--e-out);
+  transition: grid-template-rows var(--t3) var(--e-out), opacity var(--t2) var(--e-out);
   opacity: 1;
 }
 
@@ -2739,11 +2816,11 @@ body.fullscreen {
   inset: 0;
   z-index: 90;
   background: rgba(0,0,0,.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: var(--blur-scrim);
+  -webkit-backdrop-filter: var(--blur-scrim);
   opacity: 0;
   visibility: hidden;
-  transition: opacity .4s var(--e-out), visibility .4s;
+  transition: opacity var(--t3) var(--e-out), visibility var(--t3);
 }
 
 .overlay-scrim.active { opacity: 1; visibility: visible; }
@@ -2760,13 +2837,13 @@ body.fullscreen {
   border-radius: 22px;
   border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
   background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: var(--blur-surface);
+  -webkit-backdrop-filter: var(--blur-surface);
   box-shadow: inset 0 1px 0 var(--edge), 0 40px 100px rgba(0,0,0,.5);
   opacity: 0;
   visibility: hidden;
   transform: translate(-50%, -46%) scale(.97);
-  transition: opacity .5s var(--e-out), transform .55s var(--e-out), visibility .5s;
+  transition: opacity var(--t3) var(--e-out), transform var(--t4) var(--e-out), visibility var(--t3);
 }
 
 .dash.active {
@@ -2825,7 +2902,7 @@ body.fullscreen {
 }
 
 .kpi-val {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(26px * var(--ui-scale));
   font-weight: 300;
   letter-spacing: -0.03em;
@@ -2891,7 +2968,7 @@ body.fullscreen {
   border-radius: 6px 6px 3px 3px;
   background: linear-gradient(180deg, var(--accent2), var(--accent));
   opacity: .85;
-  transition: height .8s var(--e-out), opacity .3s;
+  transition: height .8s var(--e-out), opacity var(--t2);
   position: relative;
 }
 
@@ -2904,10 +2981,10 @@ body.fullscreen {
   left: 50%;
   transform: translateX(-50%);
   font-size: calc(10px * var(--ui-scale));
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text2);
   opacity: 0;
-  transition: opacity .3s var(--e-out);
+  transition: opacity var(--t2) var(--e-out);
   white-space: nowrap;
 }
 
@@ -2964,7 +3041,7 @@ body.fullscreen {
 .hc {
   border-radius: 2px;
   background: var(--border);
-  transition: transform .3s var(--e-spring), box-shadow .3s;
+  transition: transform var(--t2) var(--e-spring), box-shadow var(--t2);
   cursor: default;
 }
 
@@ -3015,7 +3092,7 @@ body.fullscreen {
   color: var(--text2);
   font-size: calc(12px * var(--ui-scale));
   cursor: pointer;
-  transition: border-color .3s var(--e-out), color .3s, background-color .3s;
+  transition: border-color var(--t2) var(--e-out), color var(--t2), background-color var(--t2);
 }
 
 .chip:hover { border-color: var(--accent); color: var(--text); }
@@ -3055,11 +3132,11 @@ body.fullscreen {
   align-items: center;
   justify-content: center;
   background: rgba(0,0,0,.65);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: var(--blur-scrim);
+  -webkit-backdrop-filter: var(--blur-scrim);
   opacity: 0;
   visibility: hidden;
-  transition: opacity .35s var(--e-out), visibility .35s;
+  transition: opacity var(--t2) var(--e-out), visibility var(--t2);
 }
 
 .keys-overlay.active { opacity: 1; visibility: visible; }
@@ -3072,7 +3149,7 @@ body.fullscreen {
   background: var(--bg);
   box-shadow: inset 0 1px 0 var(--edge), 0 30px 80px rgba(0,0,0,.5);
   transform: translateY(14px) scale(.98);
-  transition: transform .45s var(--e-out);
+  transition: transform var(--t3) var(--e-out);
 }
 
 .keys-overlay.active .keys-box { transform: none; }
@@ -3111,7 +3188,7 @@ kbd {
   border-bottom-width: 2px;
   background: var(--card);
   color: var(--text);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(11px * var(--ui-scale));
   text-align: center;
 }
@@ -3126,11 +3203,11 @@ kbd {
   justify-content: center;
   padding-top: 14vh;
   background: rgba(0,0,0,.55);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter: var(--blur-scrim);
+  -webkit-backdrop-filter: var(--blur-scrim);
   opacity: 0;
   visibility: hidden;
-  transition: opacity .3s var(--e-out), visibility .3s;
+  transition: opacity var(--t2) var(--e-out), visibility var(--t2);
 }
 
 .palette.active { opacity: 1; visibility: visible; }
@@ -3143,7 +3220,7 @@ kbd {
   box-shadow: inset 0 1px 0 var(--edge), 0 30px 80px rgba(0,0,0,.55);
   overflow: hidden;
   transform: translateY(-12px) scale(.98);
-  transition: transform .4s var(--e-out);
+  transition: transform var(--t3) var(--e-out);
 }
 
 .palette.active .palette-box { transform: none; }
@@ -3182,7 +3259,7 @@ kbd {
   border-radius: 9px;
   cursor: pointer;
   font-size: calc(14px * var(--ui-scale));
-  transition: background-color .18s var(--e-out);
+  transition: background-color var(--t1) var(--e-out);
 }
 
 .pal-item .pal-ico {
@@ -3253,7 +3330,7 @@ kbd {
    ease renders the wrap as a visible backwards un-draw. The face is repainted
    at 30fps anyway, so the value is already smooth without it. */
 .mode-clock .ring-progress {
-  transition: opacity .5s var(--e-out), filter .6s var(--e-out);
+  transition: opacity var(--t3) var(--e-out), filter var(--t4) var(--e-out);
 }
 
 /* Nothing is "running" in clock mode, so the colon inherits no life from
@@ -3314,7 +3391,7 @@ kbd {
   overflow: hidden;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .35s var(--e-out);
+  transition: opacity var(--t2) var(--e-out);
 }
 
 /* Layer shows as soon as a background is set so the loading spinner is visible;
@@ -3346,7 +3423,7 @@ body.has-bg #bgMedia { opacity: 1; }
   inset: 0;
   background: var(--bg);
   opacity: var(--bg-dim, .45);
-  transition: opacity .5s var(--e-out);
+  transition: opacity var(--t3) var(--e-out);
 }
 
 body.has-bg .dial {
@@ -3379,7 +3456,7 @@ body.has-bg .ambient-bar {
   font: inherit;
   font-size: calc(12px * var(--ui-scale));
   cursor: pointer;
-  transition: border-color .3s var(--e-out), color .3s;
+  transition: border-color var(--t2) var(--e-out), color var(--t2);
 }
 
 .bg-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -3449,7 +3526,7 @@ body.has-bg .ambient-bar {
   font-size: calc(14px * var(--ui-scale));
   line-height: 1;
   opacity: .38;
-  transition: opacity .2s var(--e-out), color .2s var(--e-out);
+  transition: opacity var(--t1) var(--e-out), color var(--t1) var(--e-out);
 }
 
 .tag-chip:hover .tag-x { opacity: .7; }
@@ -3479,7 +3556,7 @@ body.has-bg .ambient-bar {
   color: var(--text2);
   cursor: pointer;
   opacity: 0;
-  transition: opacity .25s var(--e-out), color .2s, border-color .2s;
+  transition: opacity var(--t2) var(--e-out), color var(--t1), border-color var(--t1);
 }
 
 .history-item:hover .hist-del { opacity: 1; }
@@ -3508,13 +3585,13 @@ body.has-bg .ambient-bar {
   border-radius: 50%;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 80%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   color: var(--text2);
   cursor: pointer;
   opacity: .45;
-  transition: opacity .35s var(--e-out), transform .45s var(--e-spring),
-              color .3s var(--e-out), border-color .3s var(--e-out);
+  transition: opacity var(--t2) var(--e-out), transform var(--t3) var(--e-spring),
+              color var(--t2) var(--e-out), border-color var(--t2) var(--e-out);
 }
 
 .fullscreen .fs-exit { display: flex; }
@@ -3528,14 +3605,14 @@ body.has-bg .ambient-bar {
 
 .fs-exit:active {
   transform: scale(.94);
-  transition-duration: .11s;
+  transition-duration: var(--t1);
 }
 
 /* Removal should feel instant — fading the layer and its scrim out over half a
    second is what made the Remove button feel unresponsive. */
 body:not(.has-bg) #bgMedia,
 body:not(.has-bg) #bgMedia::after {
-  transition-duration: .12s;
+  transition-duration: var(--t1);
 }
 
 /* ========== BACKGROUND LOADING STATE ========== */
@@ -3587,7 +3664,7 @@ body:not(.has-bg) #bgMedia::after {
   display: flex;
   justify-content: space-between;
   margin-top: 6px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: calc(11px * var(--ui-scale));
   color: var(--text2);
   font-variant-numeric: tabular-nums;
@@ -3610,7 +3687,7 @@ body:not(.has-bg) #bgMedia::after {
   font-size: calc(13px * var(--ui-scale));
   line-height: 1;
   opacity: .3;
-  transition: opacity .2s var(--e-out), color .2s var(--e-out);
+  transition: opacity var(--t1) var(--e-out), color var(--t1) var(--e-out);
 }
 
 .preset-btn:hover .preset-x { opacity: .65; }
@@ -3634,7 +3711,7 @@ body:not(.has-bg) #bgMedia::after {
   font: inherit;
   font-size: calc(12px * var(--ui-scale));
   cursor: pointer;
-  transition: border-color .3s var(--e-out), color .25s, background-color .3s;
+  transition: border-color var(--t2) var(--e-out), color var(--t2), background-color var(--t2);
 }
 
 .pomo-act:hover {
@@ -3666,7 +3743,7 @@ body:not(.has-bg) #bgMedia::after {
 }
 
 .tag-bar-head b {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 400;
   font-size: calc(11px * var(--ui-scale));
   color: var(--text2);
@@ -3685,7 +3762,7 @@ body:not(.has-bg) #bgMedia::after {
   height: 100%;
   border-radius: 3px;
   background: linear-gradient(90deg, var(--accent), var(--accent2));
-  transition: width .7s var(--e-out);
+  transition: width var(--t4) var(--e-out);
 }
 
 /* ========== COMPACT MODE ========== */
@@ -3732,7 +3809,7 @@ body {
      flattened. Their own --subtle-bg (white .06/.10) is what they use wherever
      the substrate is already dark — same perceptual step, opposite direction. */
   --sol-glass: color-mix(in srgb, var(--bg) 82%, transparent);
-  --sol-blur: blur(28px) saturate(140%);
+  --sol-blur: var(--blur-surface) saturate(140%);
   --sol-rim: 1px solid rgba(255, 255, 255, .12);
   --sol-shadow:
     0 10px 40px rgba(0, 0, 0, .08),
@@ -3824,7 +3901,7 @@ body {
   border-radius: 50%;
   background: rgba(255, 255, 255, .1);
   font-size: calc(14px * var(--ui-scale));
-  transition: background var(--sol-micro) ease, transform .2s var(--sol-out);
+  transition: background var(--sol-micro) ease, transform var(--t1) var(--sol-out);
 }
 
 .close-panel:hover { background: rgba(255, 255, 255, .18); }
@@ -3864,7 +3941,7 @@ body {
   letter-spacing: 2.5px;
   text-transform: uppercase;
   line-height: 1;
-  color: rgba(255, 255, 255, .9);
+  color: color-mix(in srgb, var(--text) 90%, transparent);
   border-bottom: 1px solid rgba(255, 255, 255, .1);
 }
 
@@ -3887,7 +3964,7 @@ body {
   border-right: 1.6px solid var(--text2);
   border-bottom: 1.6px solid var(--text2);
   transform: rotate(45deg) translate(-2px, -2px);
-  transition: transform .3s var(--sol-out), border-color var(--sol-micro) ease;
+  transition: transform var(--t2) var(--sol-out), border-color var(--sol-micro) ease;
 }
 
 .panel-section.shut h3::after { transform: rotate(-135deg) translate(-1px, -1px); }
@@ -3908,14 +3985,14 @@ body {
   background: var(--sol-card);
   box-shadow: none;
   gap: 12px;
-  transition: background .3s var(--sol-out), transform .3s var(--sol-out);
+  transition: background var(--t2) var(--sol-out), transform var(--t2) var(--sol-out);
 }
 
 .order-row {
   border: none;
   border-radius: 12px;
   background: var(--sol-card);
-  transition: background .3s var(--sol-out);
+  transition: background var(--t2) var(--sol-out);
 }
 
 .setting-row:hover,
@@ -3984,9 +4061,7 @@ body {
   opacity: .9;
 }
 
-.sec-ico svg { width: 14px; height: 14px; }
-
-.row-ico {
+.sec-ico svg { width: 14px; height: 14px; }.row-ico {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -3995,8 +4070,8 @@ body {
   border-radius: 0;
   background: none;
   box-shadow: none;
-  color: rgba(255, 255, 255, .9);
-  transition: color .3s var(--sol-out);
+  color: color-mix(in srgb, var(--text) 90%, transparent);
+  transition: color var(--t2) var(--sol-out);
 }
 
 .light .row-ico { background: none; color: rgba(18, 18, 40, .8); }
@@ -4012,9 +4087,7 @@ body {
   align-items: center;
   gap: 12px;
   min-width: 116px;
-}
-
-.row-sub {
+}.row-sub {
   display: block;
   margin-top: 2px;
   font-size: calc(10px * var(--ui-scale));
@@ -4022,7 +4095,7 @@ body {
   font-weight: 500;
   letter-spacing: .3px;
   line-height: 1.35;
-  color: rgba(255, 255, 255, .5);
+  color: color-mix(in srgb, var(--text) 50%, transparent);
 }
 
 .light .row-sub { color: rgba(18, 18, 40, .5); }
@@ -4035,7 +4108,7 @@ body {
   border-radius: 13px;
   background: rgba(255, 255, 255, .15);
   box-shadow: none;
-  transition: background .3s var(--sol-out);
+  transition: background var(--t2) var(--sol-out);
 }
 
 .light .toggle { background: rgba(18, 18, 40, .15); }
@@ -4050,7 +4123,7 @@ body {
   /* `all`, as theirs is — width, background and shadow ride the same curve as
      the travel, so the knob reads as one object moving rather than three
      properties changing near each other. */
-  transition: all .3s var(--sol-out);
+  transition: all var(--t2) var(--sol-out);
 }
 
 /* Held down, the knob stretches toward where it is about to go. One rule, and
@@ -4071,8 +4144,12 @@ body {
 .panel-btn, .reset-btn, .bg-btn, .lap-action-btn, .quote-del-btn, .order-btn {
   border: none;
   border-radius: 10px;
-  background: rgba(255, 255, 255, .1);
-  color: rgba(255, 255, 255, .85);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  /* Was a literal white with a paired `.light .panel-btn` override. Deriving
+     from --text means a direction that isn't simply light-or-dark (Bahnhof's
+     paper, Pace Clock's bone plastic) gets the right value without needing its
+     own override too. */
+  color: color-mix(in srgb, var(--text) 85%, transparent);
   font-weight: 600;
   font-size: calc(12px * var(--ui-scale));
   box-shadow: none;
@@ -4127,21 +4204,17 @@ body {
 
 .time-input:hover, .shortcut-input:hover, .tag-input:hover, .quote-input:hover {
   background: rgba(255, 255, 255, .07);
-}
-
-.time-input:focus, .shortcut-input:focus, .tag-input:focus, .quote-input:focus,
+}.time-input:focus, .shortcut-input:focus, .tag-input:focus, .quote-input:focus,
 .custom-css-input:focus, .custom-font-input:focus {
   outline: none;
   background: var(--sol-field-focus);
   box-shadow: none;
-  color: #fff;
+  color: var(--text);
 }
 
 .light .time-input:focus, .light .shortcut-input:focus,
 .light .tag-input:focus, .light .quote-input:focus,
-.light .custom-css-input:focus, .light .custom-font-input:focus { color: var(--text); }
-
-::placeholder { color: rgba(255, 255, 255, .3); }
+.light .custom-css-input:focus, .light .custom-font-input:focus { color: var(--text); }::placeholder { color: color-mix(in srgb, var(--text) 30%, transparent); }
 .light ::placeholder { color: rgba(18, 18, 40, .35); }
 
 .color-picker-input {
@@ -4160,7 +4233,7 @@ body {
   border-radius: 12px;
   background: var(--sol-subtle);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
-  transition: box-shadow .2s ease, background var(--sol-micro) ease, transform .2s var(--sol-out);
+  transition: box-shadow var(--t1) ease, background var(--sol-micro) ease, transform var(--t1) var(--sol-out);
 }
 
 .light .theme-opt, .light .sound-opt, .light .font-opt { background: rgba(18, 18, 40, .05); }
@@ -4190,7 +4263,7 @@ body {
   border: none;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1);
-  transition: box-shadow .2s ease, transform .2s var(--sol-out);
+  transition: box-shadow var(--t1) ease, transform var(--t1) var(--sol-out);
 }
 
 .color-opt.active { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .88); }
@@ -4223,7 +4296,7 @@ body {
     rgba(255, 255, 255, .35) 0%, rgba(255, 255, 255, .35) var(--sp, 0%),
     rgba(255, 255, 255, .12) var(--sp, 0%), rgba(255, 255, 255, .12) 100%);
   box-shadow: none;
-  transition: background .3s ease;
+  transition: background var(--t2) ease;
 }
 
 .slider:hover {
@@ -4248,7 +4321,7 @@ body {
     0 4px 12px rgba(0, 0, 0, .15),
     0 2px 6px rgba(0, 0, 0, .1),
     inset 0 1px 0 rgba(255, 255, 255, .8);
-  transition: all .3s var(--sol-out);
+  transition: all var(--t2) var(--sol-out);
 }
 
 .slider::-webkit-slider-thumb:hover {
@@ -4270,7 +4343,7 @@ body {
   border: 2px solid rgba(255, 255, 255, .5);
   cursor: grab;
   box-shadow: 0 4px 12px rgba(0, 0, 0, .15), inset 0 1px 0 rgba(255, 255, 255, .8);
-  transition: all .3s var(--sol-out);
+  transition: all var(--t2) var(--sol-out);
 }
 
 .slider::-moz-range-thumb:hover { transform: scale(1.15); background: #fff; }
@@ -4299,12 +4372,10 @@ body {
   margin-bottom: 0;
   /* Corners square off only after the body has finished opening, so the head
      and body never look welded mid-transition. */
-  transition: background .2s ease, border-radius .1s ease .3s;
+  transition: background var(--t1) ease, border-radius var(--t1) ease var(--t2);
 }
 
-.sel.open .sel-head { border-radius: 14px 14px 0 0; transition: background .2s ease, border-radius .1s ease; }
-
-.sel-ico {
+.sel.open .sel-head { border-radius: 14px 14px 0 0; transition: background var(--t1) ease, border-radius var(--t1) ease; }.sel-ico {
   display: grid;
   place-items: center;
   width: 22px;
@@ -4313,7 +4384,7 @@ body {
   border-radius: 0;
   background: none;
   box-shadow: none;
-  color: rgba(255, 255, 255, .9);
+  color: color-mix(in srgb, var(--text) 90%, transparent);
 }
 
 .light .sel-ico { color: rgba(18, 18, 40, .8); }
@@ -4330,7 +4401,7 @@ body {
   margin-top: 3px;
   font-size: calc(11px * var(--ui-scale));
   font-weight: 500;
-  color: rgba(255, 255, 255, .6);
+  color: color-mix(in srgb, var(--text) 60%, transparent);
   opacity: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -4346,7 +4417,7 @@ body {
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, .3);
   box-shadow: none;
-  transition: background .4s ease;
+  transition: background var(--t3) ease;
 }
 
 .sw-accent { background: var(--accent); }
@@ -4380,7 +4451,7 @@ body {
   border-radius: 50%;
   background: rgba(255, 255, 255, .1);
   transform: none;
-  transition: transform .3s ease, background var(--sol-micro) ease;
+  transition: transform var(--t2) ease, background var(--sol-micro) ease;
 }
 
 .light .sel-arrow { background: rgba(18, 18, 40, .07); }
@@ -4431,8 +4502,8 @@ body {
      visibility removes them — delayed by the collapse so it doesn't cut the
      animation short, and immediate on the way open. */
   visibility: hidden;
-  transition: grid-template-rows var(--sol-expand) var(--sol-smooth), opacity .2s ease,
-              visibility 0s linear var(--sol-expand), margin-bottom var(--sol-expand) var(--sol-smooth);
+  transition: grid-template-rows var(--sol-expand) var(--sol-smooth), opacity var(--t1) ease,
+              visibility var(--t1) linear var(--sol-expand), margin-bottom var(--sol-expand) var(--sol-smooth);
 }
 
 .dep.open {
@@ -4451,8 +4522,8 @@ body {
      always right, without chasing every possible last-child type inside it. */
   margin-bottom: 10px;
   visibility: visible;
-  transition: grid-template-rows var(--sol-expand) var(--sol-smooth), opacity .2s ease,
-              visibility 0s, margin-bottom var(--sol-expand) var(--sol-smooth);
+  transition: grid-template-rows var(--sol-expand) var(--sol-smooth), opacity var(--t1) ease,
+              visibility var(--t1), margin-bottom var(--sol-expand) var(--sol-smooth);
 }
 
 /* worldDep is the true last row of its panel-section (nothing follows it) —
@@ -4483,15 +4554,13 @@ body {
   box-shadow: none;
 }
 
-.light .mode-tabs { background: rgba(18, 18, 40, .06); }
-
-.mode-tab {
+.light .mode-tabs { background: rgba(18, 18, 40, .06); }.mode-tab {
   padding: 11px 18px;
   border-radius: 8px;
   font-size: calc(13px * var(--ui-scale));
   font-weight: 600;
-  color: rgba(255, 255, 255, .6);
-  transition: color .2s ease;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+  transition: color var(--t1) ease;
 }
 
 .light .mode-tab { color: rgba(18, 18, 40, .6); }
@@ -4536,8 +4605,8 @@ body {
   border-radius: 14px;
   background: var(--sol-card);
   box-shadow: none;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
 }
 
 .light .analytics-mini, .light .tag-card, .light .laps-stats,
@@ -4550,8 +4619,8 @@ body {
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 99px;
   background: var(--sol-glass);
-  backdrop-filter: var(--sol-blur);
-  -webkit-backdrop-filter: var(--sol-blur);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   box-shadow: var(--sol-shadow);
 }
 
@@ -4592,7 +4661,7 @@ body {
   width: calc((100% - 6px) / 3);
   border-radius: 99px;
   background: var(--accent);
-  transition: left .4s var(--sol-out);
+  transition: left var(--t3) var(--sol-out);
   will-change: left;
 }
 
@@ -4605,16 +4674,19 @@ body {
   border: none;
   border-radius: 99px;
   background: none;
-  color: rgba(255, 255, 255, .5);
+  /* Derived from --text, not a literal white. The active state below keeps its
+     white because it sits on the accent-filled .seg::before indicator; these
+     two sit on the track, which is translucent over --card. */
+  color: color-mix(in srgb, var(--text) 52%, transparent);
   font: inherit;
   font-size: calc(11px * var(--ui-scale));
   font-weight: 600;
   cursor: pointer;
-  transition: color .3s var(--sol-out);
+  transition: color var(--t2) var(--sol-out);
 }
 
 .light .seg-btn { color: rgba(18, 18, 40, .5); }
-.seg-btn:hover:not(.is-active) { color: rgba(255, 255, 255, .8); }
+.seg-btn:hover:not(.is-active) { color: color-mix(in srgb, var(--text) 82%, transparent); }
 .seg-btn.is-active { color: #fff; font-weight: 700; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4628,8 +4700,8 @@ body {
   border: none;
   border-radius: 11px;
   background: var(--sol-subtle);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: var(--blur-chrome);
+  -webkit-backdrop-filter: var(--blur-chrome);
   box-shadow: none;
   transition: background var(--sol-micro) ease, color var(--sol-micro) ease, transform var(--sol-micro) var(--sol-out);
 }
@@ -4656,7 +4728,7 @@ body {
   border-radius: 12px;
   background: var(--sol-card);
   box-shadow: none;
-  transition: background .3s var(--sol-out);
+  transition: background var(--t2) var(--sol-out);
 }
 
 .dash-card:hover, .history-item:hover, .pal-item:hover { background: var(--sol-card-hover); }
@@ -4687,6 +4759,7 @@ body {
   .dash {
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     border-radius: 0;
     border: none;
   }
@@ -4782,7 +4855,7 @@ body {
 body.theme-swap, body.theme-swap *, body.theme-swap *::before, body.theme-swap *::after {
   transition-property: background-color, border-color, color, box-shadow, fill, stroke, background,
                         outline-color, --bg, --card, --border, --text, --text2, --edge !important;
-  transition-duration: .42s !important;
+  transition-duration: var(--t3) !important;
   transition-timing-function: var(--e-out) !important;
   transition-delay: 0s !important;
 }
@@ -4810,3 +4883,761 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
   #boot { display: none !important; }
 }
 
+
+/* ========== ACCESSIBILITY ==========
+   The app is driven almost entirely by divs carrying class state (.toggle,
+   .theme-opt, .sound-opt, .sel-head). Those are promoted to real roles at boot
+   by a11yInit() in chronos.js rather than by hand-editing ~60 rows of markup —
+   one promotion table there beats sixty attributes here that can drift from the
+   classes they mirror. This block styles what that promotion makes reachable. */
+
+/* Visible only to assistive tech. Used for the live regions that announce timer
+   state, and for labels on controls whose meaning is otherwise purely visual. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* First tab stop on the page. Sits off-screen until focused, then lands as a
+   real control — the dial is ~40 elements into the DOM otherwise. */
+.skip-link {
+  position: fixed;
+  top: var(--s2);
+  left: var(--s2);
+  z-index: 999;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--card);
+  color: var(--text);
+  font: 600 calc(13px * var(--ui-scale))/1 var(--font-ui);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform var(--t2) var(--e-out);
+}
+
+.skip-link:focus { transform: translateY(0); }
+
+/* Promoted controls are keyboard-reachable, so they need the same focus ring
+   the native controls already get from the :focus-visible rule up top. */
+.toggle:focus-visible,
+.theme-opt:focus-visible,
+.color-opt:focus-visible,
+.font-opt:focus-visible,
+.sound-opt:focus-visible,
+.clock-opt:focus-visible,
+.sel-head:focus-visible,
+.tag-chip:focus-visible,
+.dial:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* The dial is a slider once promoted; its focus ring follows the circle rather
+   than boxing it, since the ring is the thing you're actually adjusting. */
+.dial:focus-visible { border-radius: 50%; outline-offset: 6px; }
+.dial:focus:not(:focus-visible) { outline: none; }
+
+/* Windows High Contrast / forced-colors strips backgrounds and shadows, which
+   is most of how state is signalled here. Put the state back as a border. */
+@media (forced-colors: active) {
+  .toggle { border: 1px solid ButtonBorder; }
+  .toggle.active { border-color: Highlight; background: Highlight; }
+  .theme-opt.active, .color-opt.active, .font-opt.active,
+  .sound-opt.active, .clock-opt.active, .chip.active, .mode-tab.active {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .panel, .dash, .keys-box, .palette-box { border: 1px solid CanvasText; }
+}
+
+/* ========== SMALL SCREENS ==========
+   The existing breakpoints covered the panel, the dashboard and the analytics
+   strip. These add the parts that were still assuming a desktop: scroll
+   containment, thumb-sized targets, and a genuinely narrow phone. */
+.panel-content,
+.dash-body,
+.palette-list,
+.laps-list,
+.dash-list {
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 600px) {
+  /* 42px is the smallest square that reliably takes a thumb. The toolbar sits
+     at the top of the screen where mis-taps are most expensive. */
+  .icon-btn { width: 42px; height: 42px; }
+  .ctrl-btn { min-width: 52px; min-height: 52px; }
+  .chip, .lap-action-btn, .panel-btn, .seg-btn { min-height: 38px; }
+
+  /* The slider thumb is the one control that has to be grabbed precisely. */
+  .slider { height: 26px; }
+}
+
+@media (max-width: 380px) {
+  body { padding: var(--s2) var(--s3) 110px; }
+
+  .top-bar { gap: var(--s1); }
+  .mode-tab { padding-left: 10px; padding-right: 10px; font-size: calc(11px * var(--ui-scale)); }
+
+  /* Two across stops the tiles from becoming unreadable slivers. */
+  .theme-grid, .color-grid, .sound-grid { grid-template-columns: repeat(2, 1fr); }
+
+  .ambient-bar { flex-wrap: wrap; justify-content: center; }
+}
+
+/* Coarse pointers get no hover state — on touch it sticks after the tap and
+   reads as a stuck selection. */
+@media (hover: none) {
+  .icon-btn:hover, .ctrl-btn:hover, .amb-btn:hover,
+  .preset-btn:hover, .chip:hover { background: inherit; }
+}
+
+/* ==========================================================================
+   DIRECTIONS — three committed art directions, carried as visual themes.
+   Each one owns its palette, its type, and its geometry, and each has a single
+   signature effect gated behind body.signature (Settings ▸ Theme Signature) so
+   the palette survives without the effect if it wears thin.
+   ========================================================================== */
+
+/* ---------- 1a · BAHNHOF — Swiss station clock, public instrument -----------
+   Ink on paper stock. Two weights of rule, one red, no shadows, no rounding,
+   no glass. The readout is set in the UI face rather than a mono face because
+   a departure board is typographic, not digital. Light-first by conviction:
+   the .light rule below is the *default* reading of this direction and the
+   dark block is the one that had to be argued for. */
+/* The paper palette hangs off .light, not off the bare theme class. The app
+   adds .light when dark mode is OFF, and 37 component rules plus a stack of
+   hardcoded `color: #fff` are scoped to it — those exist precisely to correct
+   for a light background. Putting the paper on the bare class gave a cream
+   page with every one of those white-text rules still firing, which is the
+   white-on-white. Light-first is expressed by switching the app to light mode
+   when the theme is picked (see THEME_PREF in chronos.js), not by inverting
+   what .light means for this one theme. */
+.visual-bahnhof {
+  /* Night shift at the station: the same sheet read under sodium light. */
+  --bg: #14150F;
+  --card: #1C1D16;
+  --border: #33342B;
+  --text: #F4F3EF;
+  --text2: #8E8E84;
+  --accent: #DA2B22;
+  --accent2: #DA2B22;
+  --edge: rgba(244, 243, 239, .07);
+  --font-ui: 'IBM Plex Sans', Helvetica, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --font-display: 'IBM Plex Sans', Helvetica, sans-serif;
+  /* Paper stock casts no shadow. Both elevation tokens are spent on rules. */
+  --lift: none;
+  --glow: none;
+  --blur-chrome: none;
+  --blur-surface: none;
+  --blur-scrim: none;
+  background: var(--bg);
+}
+
+/* The direction as designed: ink on paper stock. */
+.visual-bahnhof.light {
+  --bg: #F4F3EF;
+  --card: #FFFFFF;
+  --border: #E2E0D9;
+  --text: #14150F;
+  --text2: #6E6E66;
+  --edge: rgba(20, 21, 15, .06);
+}
+
+/* Zero radius everywhere. This is the direction's whole posture. */
+.visual-bahnhof .dial,
+.visual-bahnhof .mode-tabs,
+.visual-bahnhof .panel,
+.visual-bahnhof .dash,
+.visual-bahnhof .analytics-mini,
+.visual-bahnhof .tag-card,
+.visual-bahnhof .laps-stats,
+.visual-bahnhof .lap-item,
+.visual-bahnhof .quote-card,
+.visual-bahnhof .icon-btn,
+.visual-bahnhof .chip,
+.visual-bahnhof .panel-btn,
+.visual-bahnhof .preset-btn,
+.visual-bahnhof .keys-box,
+.visual-bahnhof .palette-box,
+.visual-bahnhof .dash-card {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.visual-bahnhof .dial {
+  background: var(--card);
+  border: 2px solid var(--text);
+}
+
+.visual-bahnhof .ring-bg { stroke: var(--border); stroke-width: 2; }
+
+.visual-bahnhof .ring-progress {
+  stroke: var(--accent);
+  stroke-linecap: butt;
+  opacity: 1;
+}
+
+/* The baton hand: red-tipped, square, no glow. */
+.visual-bahnhof .ring-head {
+  fill: var(--accent);
+  filter: none;
+  r: 6;
+}
+
+.visual-bahnhof .tick { stroke: var(--text); opacity: .5; stroke-width: 1; }
+.visual-bahnhof .tick.maj { opacity: 1; stroke-width: 2; }
+
+.visual-bahnhof .time {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Every label is mono, uppercase, tracked out. Two families, no exceptions. */
+.visual-bahnhof .time-label,
+.visual-bahnhof .mode-tab,
+.visual-bahnhof .analytics-label,
+.visual-bahnhof .lap-stat-lbl,
+.visual-bahnhof .laps-title,
+.visual-bahnhof .pomo-stat-label,
+.visual-bahnhof .goal-cap,
+.visual-bahnhof .panel-tier,
+.visual-bahnhof .dash-note {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+}
+
+.visual-bahnhof .logo {
+  font-weight: 700;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+}
+
+/* The mode switcher is a departure board: no pill, a red underscore instead. */
+.visual-bahnhof .mode-tabs {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--text);
+  padding: 0;
+  gap: 0;
+}
+
+.visual-bahnhof #tabInd {
+  background: var(--accent);
+  border-radius: 0;
+  top: auto;
+  bottom: -2px;
+  height: 3px;
+}
+
+.visual-bahnhof .top-bar {
+  border-bottom: 2px solid var(--text);
+  padding-bottom: 12px;
+}
+
+/* The base sheet sets .mode-tab.active to #fff for a filled pill. Bahnhof's
+   active tab has no fill — it's a bare label over a red rule — so it has to
+   take the ink colour back, in both readings. */
+.visual-bahnhof .mode-tab.active { color: var(--text); }
+.visual-bahnhof .mode-tab.active::after { background: var(--accent); }
+
+/* Same problem anywhere else the base sheet assumes a filled dark chip. */
+.visual-bahnhof .theme-opt.active,
+.visual-bahnhof .sound-opt.active,
+.visual-bahnhof .font-opt.active,
+.visual-bahnhof .clock-opt.active,
+.visual-bahnhof .chip.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--accent);
+}
+
+/* Paper doesn't go translucent over the user's photo — it sits on it. */
+.visual-bahnhof.has-bg .dial,
+.visual-bahnhof.has-bg .analytics-mini,
+.visual-bahnhof.has-bg .tag-card,
+.visual-bahnhof.has-bg .ambient-bar {
+  background: var(--card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* SIGNATURE — stop-to-go. A Swiss station clock drives its second hand round
+   in 58.5s, then holds at twelve until the minute pulse arrives. Applied to
+   the clock-mode sweep, which is the only place it's the real behaviour and
+   not a decoration. */
+.visual-bahnhof.signature.mode-clock:not(.motion-none) .ring-head {
+  animation: bahnhof-stop-to-go 60s infinite;
+  transform-origin: 140px 140px;
+}
+
+@keyframes bahnhof-stop-to-go {
+  0%     { transform: rotate(0deg); }
+  97.5%  { transform: rotate(360deg); }
+  100%   { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .visual-bahnhof .ring-head { animation: none; }
+}
+
+/* ---------- 1b · SAFELIGHT — darkroom timer, monochrome red ----------------
+   Monochrome by physics rather than taste: under a safelight there is only
+   red, so there is no second hue to decide about. The dial is the light
+   source, not an element lit by one. */
+.visual-safelight {
+  --bg: #0C0506;
+  --card: #1A0A0B;
+  --border: #3A1A18;
+  --text: #FFE0CF;
+  --text2: #B27E6E;
+  --accent: #FF3D14;
+  --accent2: #FF6A38;
+  --edge: rgba(255, 61, 20, .10);
+  --font-ui: 'Barlow', system-ui, sans-serif;
+  --font-mono: 'Azeret Mono', ui-monospace, monospace;
+  --font-display: 'Azeret Mono', ui-monospace, monospace;
+  --lift: 0 0 0 1px rgba(255, 61, 20, .08);
+  --glow: 0 0 22px rgba(255, 61, 20, .22);
+  background: radial-gradient(circle at 50% 42%, #25100F 0%, #170A0B 62%, #100607 100%);
+}
+
+/* Light mode is daylight in the darkroom — bone paper, oxblood ink, same red.
+   An inversion would have produced pink, which is not the same idea. */
+.visual-safelight.light {
+  --bg: #EDE4DE;
+  --card: #FFFFFF;
+  --border: #D8C6BF;
+  --text: #2A1210;
+  --text2: #7A554C;
+  --accent: #C42400;
+  --accent2: #E03A14;
+  --edge: rgba(42, 18, 16, .08);
+  background: radial-gradient(circle at 50% 42%, #FBF5F2 0%, #EDE4DE 62%, #E2D5CE 100%);
+}
+
+/* No second hue anywhere: the accent tiles and mode pills all resolve to red. */
+.visual-safelight .dial {
+  background: radial-gradient(circle at 50% 44%,
+    color-mix(in srgb, var(--accent) 12%, var(--card)) 0%, var(--card) 68%);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 60px rgba(255, 61, 20, .10), 0 0 90px rgba(255, 61, 20, .10);
+}
+
+.visual-safelight.light .dial { box-shadow: inset 0 0 40px rgba(196, 36, 0, .06); }
+
+.visual-safelight .ring-bg { stroke: var(--border); }
+.visual-safelight .ring-progress { stroke: var(--accent); stroke-linecap: round; }
+
+.visual-safelight .ring-head {
+  fill: var(--accent);
+  filter: drop-shadow(0 0 8px var(--accent));
+  r: 5;
+}
+
+.visual-safelight .time {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  letter-spacing: -.01em;
+}
+
+/* The readout glows because it is the brightest thing in the room. */
+.visual-safelight.signature .time { text-shadow: 0 0 22px rgba(255, 61, 20, .45); }
+.visual-safelight.light.signature .time { text-shadow: none; }
+
+.visual-safelight .mode-tab,
+.visual-safelight .time-label,
+.visual-safelight .laps-title,
+.visual-safelight .analytics-label {
+  font-family: 'Barlow Condensed', var(--font-ui);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+
+.visual-safelight .tick { stroke: var(--accent); opacity: .22; }
+.visual-safelight .tick.maj { opacity: .55; }
+
+/* SIGNATURE — the pool of light. One radial falloff centred on the dial
+   governs the whole layout's brightness, so the rails sit at the dim edge and
+   read as instruments in a dark room rather than as panels. It's a light layer
+   over the user's media, which is why a photo reads as the wall of the room. */
+.visual-safelight.signature::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 44%,
+    rgba(255, 61, 20, .20) 0%,
+    rgba(255, 61, 20, .08) 38%,
+    rgba(255, 61, 20, .02) 60%,
+    transparent 74%);
+}
+
+.visual-safelight.light.signature::after {
+  background: radial-gradient(circle at 50% 44%,
+    rgba(196, 36, 0, .07) 0%, rgba(196, 36, 0, .02) 45%, transparent 70%);
+}
+
+/* Glow is never the only signal for state — everything that glows also moves
+   its fill and its border. */
+.visual-safelight .toggle.active { background: var(--accent); border-color: var(--accent); }
+.visual-safelight .ctrl-btn.primary { background: var(--accent); box-shadow: 0 0 22px rgba(255, 61, 20, .35); }
+
+/* ---------- 1c · PACE CLOCK — hardware panel, dot-matrix, 60 lamps ---------
+   A graphite panel with silkscreened labels, recessed windows and keys that
+   depress. Nothing floats: every region is a milled plate with an inset
+   highlight above and a cast shadow below, so the layout reads as a device. */
+.visual-paceclock {
+  --bg: #22232A;
+  --card: #2C2D35;
+  --border: #141419;
+  --text: #E9E7DE;
+  --text2: #8C8D96;
+  --accent: #F2C022;
+  --accent2: #5EE0C0;
+  --edge: rgba(255, 255, 255, .07);
+  --font-ui: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'Archivo', system-ui, sans-serif;
+  --font-display: 'Doto', 'Share Tech Mono', ui-monospace, monospace;
+  --lift: inset 0 1px 0 rgba(255, 255, 255, .07), 0 1px 0 rgba(0, 0, 0, .5);
+  --glow: 0 0 10px rgba(242, 192, 34, .35);
+  --blur-chrome: none;
+  background: var(--bg);
+}
+
+/* Light mode is a genuinely different material — bone plastic, black
+   silkscreen, amber lamps — not a lightened grey. */
+.visual-paceclock.light {
+  --bg: #CFCBBE;
+  --card: #DEDACE;
+  --border: #A8A496;
+  --text: #1B1B1F;
+  --text2: #5E5C55;
+  --accent: #C8901A;
+  --accent2: #1E8E78;
+  --edge: rgba(255, 255, 255, .5);
+  --lift: inset 0 1px 0 rgba(255, 255, 255, .6), 0 1px 0 rgba(0, 0, 0, .18);
+}
+
+/* Milled plates, not cards. Small radii only — 2 to 4px, never a pill. */
+.visual-paceclock .analytics-mini,
+.visual-paceclock .tag-card,
+.visual-paceclock .laps-stats,
+.visual-paceclock .lap-item,
+.visual-paceclock .quote-card,
+.visual-paceclock .dash-card {
+  border-radius: 3px;
+  background: var(--card);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 0 rgba(0, 0, 0, .5);
+}
+
+/* Chiclet keys that actually depress. */
+.visual-paceclock .icon-btn,
+.visual-paceclock .ctrl-btn,
+.visual-paceclock .preset-btn,
+.visual-paceclock .amb-btn,
+.visual-paceclock .panel-btn,
+.visual-paceclock .chip {
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 2px 0 rgba(0, 0, 0, .5);
+}
+
+.visual-paceclock .icon-btn:active,
+.visual-paceclock .ctrl-btn:active,
+.visual-paceclock .preset-btn:active,
+.visual-paceclock .amb-btn:active,
+.visual-paceclock .chip:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .25);
+}
+
+/* A recessed LCD window, not a card. */
+.visual-paceclock .dial {
+  border-radius: 50%;
+  background: var(--border);
+  border: 3px solid var(--card);
+  box-shadow: inset 0 3px 12px rgba(0, 0, 0, .55), 0 2px 0 rgba(0, 0, 0, .45);
+}
+
+.visual-paceclock .time {
+  font-family: var(--font-display);
+  font-weight: 900;
+  color: var(--accent);
+  letter-spacing: .02em;
+}
+
+.visual-paceclock.signature .time { text-shadow: 0 0 8px rgba(242, 192, 34, .5); }
+
+.visual-paceclock .time-label,
+.visual-paceclock .mode-tab,
+.visual-paceclock .analytics-label,
+.visual-paceclock .laps-title,
+.visual-paceclock .lap-stat-lbl,
+.visual-paceclock .pomo-stat-label {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-size: calc(10px * var(--ui-scale));
+}
+
+/* Numerals are never set in the silkscreen face. */
+.visual-paceclock .lap-time,
+.visual-paceclock .analytics-value,
+.visual-paceclock .pomo-stat-value,
+.visual-paceclock .lap-stat-val,
+.visual-paceclock .slider-val {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+/* SIGNATURE — the 60-lamp ring. Progress is quantised to sixty discrete lit
+   lamps rather than a smooth arc: the minute advances by one lamp switching
+   on, which is a tick visible from across the room. The lamps are the existing
+   60 tick marks re-read as hardware; paintLamps() in chronos.js lights them. */
+.visual-paceclock.signature .ring-progress { opacity: 0; }
+
+.visual-paceclock.signature .tick {
+  stroke: var(--border);
+  stroke-width: 4;
+  opacity: 1;
+  transition: stroke var(--t1) linear;
+}
+
+.visual-paceclock.signature .tick.lit {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 4px rgba(242, 192, 34, .8));
+}
+
+.visual-paceclock.signature .tick.maj { stroke-width: 5; }
+
+/* Without the signature it falls back to the ordinary arc. */
+.visual-paceclock:not(.signature) .ring-progress { stroke: var(--accent); }
+.visual-paceclock .ring-bg { stroke: var(--border); }
+.visual-paceclock .ring-head { fill: var(--accent2); filter: drop-shadow(0 0 6px rgba(94, 224, 192, .6)); }
+
+/* The device sits on top of the user's photo like an object on a desk. */
+.visual-paceclock.has-bg .dial,
+.visual-paceclock.has-bg .analytics-mini,
+.visual-paceclock.has-bg .tag-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ---------- Swatches for the three new tiles ---------- */
+.sw-bahnhof { background: linear-gradient(135deg, #F4F3EF 0 48%, #DA2B22 48% 56%, #14150F 56%); }
+.sw-safelight { background: radial-gradient(circle at 38% 34%, #FF3D14 0%, #7A1A0A 46%, #0C0506 100%); }
+.sw-paceclock { background: linear-gradient(135deg, #2C2D35 0 44%, #F2C022 44% 62%, #5EE0C0 62% 76%, #141419 76%); }
+
+/* ---------- Dial numerals ---------- */
+.numeral {
+  fill: var(--text);
+  opacity: .55;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+#numerals.hidden { display: none; }
+
+/* Bahnhof sets its numerals in the display face at a station-board weight —
+   the whole point of the direction is that the face is typographic. */
+.visual-bahnhof .numeral {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 15px;
+  opacity: 1;
+}
+
+/* Pace Clock silkscreens its numbers onto the plate: small, tracked, low. */
+.visual-paceclock .numeral {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 11px;
+  fill: var(--text2);
+  opacity: 1;
+}
+
+.visual-safelight .numeral { fill: var(--accent); opacity: .5; }
+
+
+/* ========== SIGNATURES FOR THE ORIGINAL TEN ==========
+   The Theme Signature toggle only meant something on the three new directions,
+   because those were designed around one effect each. The older themes had
+   decorative layers too — they just weren't gated. The aurora wash, glass
+   plate, sunset bloom, retro scanlines and cosmic starfield are qualified with
+   .signature above; the four below had no single signature to gate, so each
+   gets the one thing its own idea was already pointing at. Everything here is
+   additive: switch the toggle off and every theme falls back to its palette. */
+
+/* Minimal — Swiss timetable. Its whole argument is the hairline, so the
+   signature is the one moment of ink: the tick at twelve goes full weight and
+   full length, giving the face a single fixed point to read against. */
+.visual-minimal.signature .tick:first-child {
+  stroke: var(--text);
+  opacity: 1;
+  stroke-width: 3;
+}
+
+/* Matrix — the rain is a canvas the JS drives, so the CSS signature is the
+   phosphor bleed on the readout: characters that look transmitted rather than
+   drawn. */
+.visual-matrix.signature .time {
+  text-shadow: 0 0 6px currentColor, 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.visual-matrix.signature .dial::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 3;
+  /* Scanline pitch, not a texture: 1px on, 2px off, like a CRT line gap. */
+  background: repeating-linear-gradient(0deg,
+    color-mix(in srgb, var(--accent) 7%, transparent) 0 1px, transparent 1px 3px);
+}
+
+/* Neon — the theme is named for the glow, so the signature is the tube itself:
+   the ring gets an outer bloom and the head a hot core, the way a bent gas
+   tube is brightest at the electrode. */
+.visual-neon.signature .ring-progress {
+  filter: drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 16px var(--accent));
+}
+
+.visual-neon.signature .ring-head {
+  filter: drop-shadow(0 0 4px #fff) drop-shadow(0 0 14px var(--accent));
+}
+
+/* Vivaldi — the four seasons. The signature is the only one here that carries
+   information: the accent shifts hue around the face as the ring advances, so
+   the colour tells you roughly how far through you are without reading a
+   number. Handled as a slow rotation rather than a per-frame JS write. */
+.visual-vivaldi.signature .ring-progress,
+.visual-vivaldi.signature .ring-head {
+  animation: vivaldi-seasons 48s linear infinite;
+}
+
+@keyframes vivaldi-seasons {
+  0%   { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+/* Motion settings and OS reduce-motion both outrank a signature: an effect
+   that animates is still an animation. Static signatures stay. */
+.motion-none .visual-vivaldi.signature .ring-progress,
+.motion-none .visual-vivaldi.signature .ring-head,
+body.motion-none .visual-vivaldi.signature .ring-progress {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .visual-vivaldi.signature .ring-progress,
+  body:not(.motion-full) .visual-vivaldi.signature .ring-head {
+    animation: none;
+  }
+}
+
+/* Default theme — the accent bloom behind the dial is the house signature. */
+body:not([class*="visual-"]).signature .dial {
+  box-shadow: var(--lift), var(--glow);
+}
+
+
+/* ========== THEME SWAP ==========
+   themeSwap() puts .theme-swap on the body for 460ms around a dark/light flip.
+   The class existed and did nothing. During the swap the page is retinting
+   every surface at once, so this is the moment to stop paying for anything the
+   eye can't follow anyway: the ambient theme layers hold still, and the
+   expensive blurred chrome stops re-filtering mid-transition. */
+body.theme-swap .visual-aurora.signature::before,
+body.theme-swap .visual-cosmic.signature::before,
+body.theme-swap .visual-cosmic.signature::after,
+body.theme-swap .visual-glass.signature::before,
+body.theme-swap .visual-vivaldi.signature .ring-progress,
+body.theme-swap .visual-vivaldi.signature .ring-head {
+  animation-play-state: paused;
+}
+
+/* Re-filtering a backdrop while the colour underneath it is mid-transition is
+   the single most expensive thing on the page. Held for the swap only. */
+body.theme-swap .panel,
+body.theme-swap .dash,
+body.theme-swap .keys-box,
+body.theme-swap .palette-box {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* The dial carries width/height/box-shadow on --t4 for the size slider; during
+   a colour swap none of that is changing, and letting it participate just adds
+   a slower curve running alongside the fast one. */
+body.theme-swap .dial {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease);
+}
+
+
+/* ========== FOUR MODE TABS ==========
+   The row was proportioned for three. Enabling Clock adds a fourth and the
+   horizontal padding is what has to give — apply() writes the live count onto
+   #modeTabs so the rule keys off what's actually on screen rather than off a
+   breakpoint that can't see the setting. */
+.mode-tabs[data-tabs="4"] .mode-tab {
+  padding-left: 14px;
+  padding-right: 14px;
+  letter-spacing: 0;
+}
+
+@media (max-width: 720px) {
+  .mode-tabs[data-tabs="4"] .mode-tab {
+    padding-left: 11px;
+    padding-right: 11px;
+    font-size: calc(13px * var(--ui-scale));
+  }
+}
+
+/* Narrower than this, four labels genuinely don't fit however tight the padding
+   gets. With nowrap they'd spill out of the rounded container instead, so the
+   row scrolls: still one line tall, still full labels, and the active tab is
+   brought into view by moveTab(). Scrollbar hidden because the row is short
+   enough that a visible one would be most of its height.
+
+   #tabInd is absolutely positioned inside this box, so it joins the scrollable
+   overflow area and travels with the tabs rather than detaching from them. */
+@media (max-width: 460px) {
+  .mode-tabs[data-tabs="4"] {
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    /* Momentum scrolling without letting a horizontal flick pull the page. */
+    overscroll-behavior-x: contain;
+  }
+
+  .mode-tabs[data-tabs="4"]::-webkit-scrollbar { display: none; }
+
+  .mode-tabs[data-tabs="4"] .mode-tab {
+    padding-left: 12px;
+    padding-right: 12px;
+    font-size: calc(12px * var(--ui-scale));
+    flex: 0 0 auto;
+  }
+}

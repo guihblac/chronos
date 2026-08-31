@@ -1,7 +1,7 @@
 // ========== GLOBALS ==========
 // Bump on every delivery. Shown in the background diagnostic so we can tell at a
 // glance whether the browser is running this file or a cached older one.
-const BUILD = 'B8 clock-mode';
+const BUILD = 'B14 tab row';
 const $ = id => document.getElementById(id);
 const CIRC = 2 * Math.PI * 126;
 
@@ -54,7 +54,8 @@ const DEPS = [
   ['longBreakDep', 'longBreaks'],
   ['soundDep', 'sound'],
   ['worldDep', 'worldClocks'],
-  ['clockDep', 'modes.clock']
+  ['clockDep', 'modes.clock'],
+  ['numeralsDep', 'showNumerals']
 ];
 
 // Reads a settings key, or a dotted path into one. DEPS needs the second form
@@ -126,6 +127,9 @@ const ICONS = {
   bulb: '<path d="M9.5 17.5h5"/><path d="M10 20.5h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.4 1 1.1 1 1.8v.3h5v-.3c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 3z"/>',
   shield: '<path d="M12 3l7.5 3v5.5c0 4.4-3 8.2-7.5 9.5-4.5-1.3-7.5-5.1-7.5-9.5V6z"/>',
   tag: '<path d="M3.5 11.4V4.5a1 1 0 0 1 1-1h6.9a1 1 0 0 1 .7.3l8.1 8.1a1 1 0 0 1 0 1.4l-6.9 6.9a1 1 0 0 1-1.4 0L3.8 12.1a1 1 0 0 1-.3-.7z"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/>',
+  tick: '<circle cx="12" cy="12" r="9"/><path d="M12 3v2.5"/><path d="M12 18.5V21"/><path d="M21 12h-2.5"/><path d="M5.5 12H3"/><path d="M18.36 5.64l-1.77 1.77"/><path d="M7.41 16.59l-1.77 1.77"/><path d="M18.36 18.36l-1.77-1.77"/><path d="M7.41 7.41L5.64 5.64"/>',
+  volume: '<path d="M4 9.5h3L11.5 6v12L7 14.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.2 6.5a7.5 7.5 0 0 1 0 11"/>',
+  notifications: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/><circle cx="18" cy="5.5" r="2.6" fill="currentColor" stroke="none"/>',
   resize: '<path d="M4 10V5.5A1.5 1.5 0 0 1 5.5 4H10"/><path d="M20 14v4.5a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M9.5 14.5l-5 5"/><path d="M14.5 9.5l5-5"/>'
 };
 
@@ -440,6 +444,9 @@ const settings = {
   dark: true,
   fullscreen: false,
   showRing: true,
+  showTicks: true,
+  showNumerals: false,
+  numeralStyle: 'quarters',
   tips: true,
   visualTheme: 'default',
   motion: 'auto',
@@ -449,7 +456,7 @@ const settings = {
   uiScale: 100,
   useCustomPalette: false,
   customPalette: { bg: null, card: null, border: null, text: null, text2: null },
-  dialSize: 280,
+  dialSize: 340,
   ringThickness: 8,
   timeFont: 'mono',
   customFontName: '',
@@ -461,6 +468,8 @@ const settings = {
   compact: false,
   wide: true,
   showTagCard: true,
+  showSplit: false,
+  signature: true,
   bgDim: 35,
   bgBlur: 0,
   bgSound: false,
@@ -640,10 +649,18 @@ function init() {
   if (settings.tips) setTimeout(showQuote, 2000);
   buildTicks();
   boot();
+  a11yInit();
+  registerSW();
   
   let savedTitle = null;
   try { savedTitle = localStorage.getItem('chronos_title'); } catch (e) {}
   if (savedTitle) $('titleEdit').textContent = '⏱ ' + savedTitle;
+
+  // Launch shortcuts from the installed app's icon (manifest.webmanifest).
+  // Checked against settings.modes as well as MODES, so a shortcut can't drop
+  // the app into a mode the user has switched off.
+  const want = new URLSearchParams(location.search).get('mode');
+  if (MODES.includes(want) && settings.modes[want] && want !== mode) switchMode(want);
 }
 
 // ========== STORAGE ==========
@@ -714,6 +731,10 @@ function load() {
   const clamp = (v, lo, hi, dflt) => { const n = +v; return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
   settings.clockScale = clamp(settings.clockScale, 60, 130, 100);
   settings.uiScale = clamp(settings.uiScale, 85, 125, 100);
+  // The slider's ceiling moved from 360 to 400; clamp so an imported or stale
+  // saved value can't sit outside what the control can express.
+  settings.dialSize = Math.round(clamp(settings.dialSize, 200, 400, 340));
+  settings.ringThickness = Math.round(clamp(settings.ringThickness, 2, 20, 8));
   // The inline "1/4" editor used to write this unclamped, so a saved file can
   // hold any number at all.
   if (!settings.pomo || typeof settings.pomo !== 'object') settings.pomo = { work: 1500, short: 300, long: 900, rounds: 4 };
@@ -746,6 +767,9 @@ function apply() {
   if (bgActive) b.classList.add('has-bg');   // rebuilt className would drop it
   if (settings.timeFont !== 'mono') b.classList.add('font-' + settings.timeFont);
   if (settings.visualTheme !== 'default') b.classList.add('visual-' + settings.visualTheme);
+  // Gates each direction's one big effect (Safelight's pool of light, Pace
+  // Clock's 60 lamps, Bahnhof's held second) without touching its palette.
+  if (settings.signature) b.classList.add('signature');
   b.classList.add('theme-' + settings.colorTheme);
   b.classList.add('motion-' + settings.motion);
   if (settings.colorTheme === 'custom' && settings.customColor) {
@@ -763,7 +787,9 @@ function apply() {
   b.style.setProperty('--clock-scale', settings.clockScale / 100);
   b.style.setProperty('--ui-scale', settings.uiScale / 100);
   $('ringProgress').classList.toggle('hidden', !settings.showRing);
-  $('ticks').classList.toggle('hidden', !settings.showRing);
+  $('ticks').classList.toggle('hidden', !settings.showTicks);
+  $('numerals').classList.toggle('hidden', !settings.showNumerals);
+  buildNumerals();
   $('worldClocks').style.display = settings.worldClocks ? 'flex' : 'none';
   $('analyticsMini').style.display = settings.showAnalytics ? '' : 'none';
   $('voiceBtn').style.display = settings.voice ? '' : 'none';
@@ -777,6 +803,9 @@ function apply() {
   // decoration taking up the top of the screen. This is what "just Pomodoro"
   // is supposed to look like.
   $('modeTabs').classList.toggle('solo', on.length < 2);
+  // The tab row is proportioned for three; a fourth needs tighter padding. CSS
+  // can't see settings.modes, so the count goes onto the element.
+  $('modeTabs').dataset.tabs = on.length;
   settings.visualTheme === 'matrix' ? startMatrix() : stopMatrix();
   reorderTopBar();
   // Hiding the mode you're standing in would otherwise leave the dial in a
@@ -854,6 +883,13 @@ function updateUI() {
   $('darkToggle').classList.toggle('active', settings.dark);
   $('fsToggle').classList.toggle('active', settings.fullscreen);
   $('ringToggle').classList.toggle('active', settings.showRing);
+  $('ticksToggle').classList.toggle('active', settings.showTicks);
+  $('numeralsToggle').classList.toggle('active', settings.showNumerals);
+  $('numeralsDep').classList.toggle('open', settings.showNumerals);
+  document.querySelectorAll('#numeralSeg .seg-btn').forEach(b =>
+    b.classList.toggle('is-active', b.dataset.numerals === settings.numeralStyle));
+  $('numeralSeg').style.setProperty('--seg-i',
+    ['quarters', 'all', 'minutes'].indexOf(settings.numeralStyle));
   $('tipsToggle').classList.toggle('active', settings.tips);
   $('soundToggle').classList.toggle('active', settings.sound);
   $('tickToggle').classList.toggle('active', settings.tick);
@@ -924,6 +960,10 @@ function updateUI() {
   $('customCssInput').value = settings.customCSS || '';
   $('wideToggle').classList.toggle('active', settings.wide);
   $('tagCardToggle').classList.toggle('active', settings.showTagCard);
+  $('splitToggle').classList.toggle('active', settings.showSplit);
+  $('signatureToggle').classList.toggle('active', settings.signature);
+  // Turning it off mid-flash shouldn't leave the overlay stranded on the dial.
+  if (!settings.showSplit) $('splitDisplay').classList.remove('show');
   $('bgDimSlider').value = settings.bgDim;
   $('bgDimVal').textContent = settings.bgDim + '%';
   $('bgSoundToggle').classList.toggle('active', settings.bgSound);
@@ -961,6 +1001,9 @@ function updateUI() {
   $('motionSeg').style.setProperty('--seg-i', mi);
   document.querySelectorAll('#motionSeg .seg-btn').forEach(s =>
     s.classList.toggle('is-active', s.dataset.motion === settings.motion));
+
+  // ARIA last, so it mirrors the classes every line above just settled.
+  if (typeof a11ySync === 'function') a11ySync();
 }
 
 // The selector header is the only thing visible once a section is collapsed,
@@ -1043,8 +1086,18 @@ function bindEvents() {
     save(); apply();
   };
 
+  $('numeralSeg').onclick = e => {
+    const s = e.target.closest('.seg-btn');
+    if (!s) return;
+    settings.numeralStyle = s.dataset.numerals;
+    save(); apply();
+  };
+
   document.querySelectorAll('.sel-head').forEach(h => {
-    h.onclick = () => h.parentElement.classList.toggle('open');
+    h.onclick = () => {
+      const open = h.parentElement.classList.toggle('open');
+      h.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
   });
   // Mode tabs
   document.querySelectorAll('.mode-tab').forEach(t => t.onclick = () => switchMode(t.dataset.mode));
@@ -1080,12 +1133,19 @@ function bindEvents() {
   };
   
   // Panels
-  $('settingsBtn').onclick = () => { $('settingsPanel').classList.add('active'); $('settingsOverlay').classList.add('active'); };
+  $('settingsBtn').onclick = () => {
+    $('settingsPanel').classList.add('active');
+    $('settingsOverlay').classList.add('active');
+    openModal($('settingsPanel'), $('closeSettings'));
+    a11ySync();
+  };
   $('closeSettings').onclick = $('settingsOverlay').onclick = () => {
     $('settingsPanel').classList.remove('active');
     $('settingsOverlay').classList.remove('active');
     recordingShortcut = null;
     document.querySelectorAll('.shortcut-input').forEach(i => i.classList.remove('recording'));
+    closeModal();
+    a11ySync();
   };
   $('historyBtn').onclick = openDash;
   $('closeHistory').onclick = $('dashScrim').onclick = closeDash;
@@ -1124,6 +1184,8 @@ function bindEvents() {
     apply();
   };
   tog('ringToggle', 'showRing');
+  tog('ticksToggle', 'showTicks');
+  tog('numeralsToggle', 'showNumerals');
   tog('tipsToggle', 'tips');
   tog('soundToggle', 'sound');
   tog('tickToggle', 'tick');
@@ -1235,7 +1297,12 @@ function bindEvents() {
   // Theme/color/clock grids
   $('themeGrid').onclick = e => {
     const t = e.target.closest('.theme-opt');
-    if (t) { settings.visualTheme = t.dataset.theme; save(); apply(); }
+    if (t) {
+      settings.visualTheme = t.dataset.theme;
+      // A direction can declare which reading it was designed in. Only applied
+      // on an explicit pick — never on load, which would fight the dark toggle.
+      save(); apply();
+    }
   };
   $('colorGrid').onclick = e => {
     if (e.target.classList.contains('color-opt')) {
@@ -1446,6 +1513,7 @@ function bindEvents() {
   
   // Keyboard
   document.onkeydown = e => {
+    trapFocus(e);
     if (recordingShortcut) {
       e.preventDefault();
       settings.keys[recordingShortcut] = e.code;
@@ -1462,9 +1530,13 @@ function bindEvents() {
     if ($('palette').classList.contains('active')) { paletteKey(e); return; }
     
     if (e.key === 'Escape') {
+      const wasOpen = document.querySelector('.panel.active, .keys-overlay.active');
       $('settingsOverlay').classList.remove('active');
       $('settingsPanel').classList.remove('active');
       $('keysOverlay').classList.remove('active');
+      // Closing a dialog has to hand focus back, or the user is dropped at the
+      // top of the document with no idea where they were.
+      if (wasOpen) { closeModal(); a11ySync(); return; }
       if ($('dashboard').classList.contains('active')) return closeDash();
       if (settings.fullscreen) setFS(false);
       return;
@@ -1483,6 +1555,8 @@ function bindEvents() {
   
   tog('wideToggle', 'wide');
   tog('tagCardToggle', 'showTagCard');
+  tog('splitToggle', 'showSplit');
+  tog('signatureToggle', 'signature');
   tog('railsSwapToggle', 'swapRails');
   
   $('goalSlider').oninput = e => {
@@ -1678,9 +1752,11 @@ function switchMode(m) {
     ? (pomoPhase === 'work' ? 'Focus Time' : 'Break')
     : { stopwatch: 'Stopwatch', timer: 'Timer', clock: 'Clock' }[m];
   syncPlayBtn();
+  say($('timeLabel').textContent + ' mode');
   moveTab();
   syncBodyState();
   syncClockLoop();
+  a11ySync();
   updateDisplay();
   updateRing();
   
@@ -1758,6 +1834,9 @@ function loadRun(m) {
 function syncPlayBtn() {
   $('playBtn').innerHTML = icon(running ? 'pause' : 'play', 26);
   $('playBtn').title = running ? 'Pause' : 'Start';
+  // The icon is drawn from a path with no text; title alone is a tooltip, not
+  // an accessible name on every platform.
+  $('playBtn').setAttribute('aria-label', running ? 'Pause' : 'Start');
 }
 
 // ========== CLOCK MODE ==========
@@ -1830,6 +1909,7 @@ function start() {
   running = true;
   startTime = Date.now() - elapsed;
   syncPlayBtn();
+  say(mode === 'stopwatch' ? 'Started' : 'Started, ' + spokenTime(timerRemaining) + ' remaining');
   interval = setInterval(tick, 16);
   if (mode === 'pomodoro') showQuote();
   syncBodyState();
@@ -1840,10 +1920,12 @@ function pause() {
   // Derive from the wall clock rather than trusting whatever tick() last wrote.
   // A throttled background tab can leave elapsed hundreds of ms behind, and
   // pausing on the stale value silently loses that time.
+  const wasRunning = running;
   if (running) elapsed = Date.now() - startTime;
   running = false;
   clearInterval(interval);
   syncPlayBtn();
+  if (wasRunning) say('Paused at ' + spokenTime(mode === 'stopwatch' ? elapsed : timerRemaining));
   syncBodyState();
   releaseWake();
 }
@@ -1873,8 +1955,10 @@ function reset() {
   startTime = Date.now();
   lastSec = -1;
   syncBodyState();
+  say('Reset');
   updateDisplay();
   updateRing();
+  a11yDial();
   $('dial').classList.remove('timer-complete');
   
   // Visible acknowledgement — the button spins even when the clock was already zero
@@ -1918,6 +2002,9 @@ function complete() {
   }
   $('dial').classList.add('timer-complete');
   setTimeout(() => $('dial').classList.remove('timer-complete'), 2000);
+  say(mode === 'pomodoro'
+    ? (pomoPhase === 'work' ? 'Focus session complete. Time for a break.' : 'Break over. Back to work.')
+    : 'Time is up.', true);
   
   if (mode === 'pomodoro') {
     const r = $('ringProgress'), d = $('dial');
@@ -2033,6 +2120,23 @@ function updateDisplay() {
   }
 }
 
+// Pace Clock's signature. Progress is quantised to sixty discrete lamps rather
+// than a smooth arc, so the minute advances by one lamp switching on. Only the
+// lamps that actually changed are touched — reassigning 60 classes at 60fps is
+// how you turn a decoration into a frame-rate problem.
+let litCount = -1;
+function paintLamps(p) {
+  const want = Math.round(Math.max(0, Math.min(1, p)) * 60);
+  if (want === litCount) return;
+  const ticks = $('ticks').children;
+  if (!ticks.length) return;
+  // No index rotation here: .ring-svg carries transform: rotate(-90deg), so the
+  // ticks and the arc already share one rotated frame and tick 0 is visually at
+  // twelve o'clock. Offsetting by a quarter turn double-corrects it.
+  for (let i = 0; i < 60; i++) ticks[i].classList.toggle('lit', i < want);
+  litCount = want;
+}
+
 function updateRing() {
   const p = mode === 'clock' ? clockProgress()
     : mode === 'stopwatch' ? Math.min(elapsed / 3600000, 1)
@@ -2045,6 +2149,11 @@ function updateRing() {
   // The clock head crosses zero on every wrap; the 0.0015 cutoff exists to stop
   // a parked head sitting at 12 o'clock, which isn't a state a clock has.
   h.style.opacity = settings.showRing && (mode === 'clock' || p > 0.0015) ? '1' : '0';
+
+  // Cheap enough to call unconditionally — paintLamps returns immediately
+  // unless the lamp count actually moved, and the CSS only reveals them under
+  // .visual-paceclock.signature.
+  if (settings.showTicks) paintLamps(p);
 }
 
 // The dial has exactly 60 tick marks, so both readings land one tick per step:
@@ -2189,9 +2298,14 @@ function recordLap() {
   laps.push({ total: elapsed, split });
   lastLapTime = elapsed;
   
-  $('splitDisplay').classList.add('show');
-  $('splitTime').textContent = fmt(split);
-  setTimeout(() => $('splitDisplay').classList.remove('show'), 3000);
+  // The split overlay sits on the dial face over the running digits, which is
+  // the one place on screen already carrying a number. Off by default; the lap
+  // is still recorded and still lands in the laps list either way.
+  if (settings.showSplit) {
+    $('splitDisplay').classList.add('show');
+    $('splitTime').textContent = fmt(split);
+    setTimeout(() => $('splitDisplay').classList.remove('show'), 3000);
+  }
   
   renderLaps();
 }
@@ -2357,6 +2471,7 @@ function setupDial() {
     else { timerDuration = ms; timerRemaining = ms; }
     updateDisplay();
     updateRing();
+    a11yDial();
   };
   const end = () => {
     if (!drag) return;
@@ -2364,13 +2479,43 @@ function setupDial() {
     dialDragging = false;
     document.body.classList.remove('dragging');
   };
-  
-  d.addEventListener('mousedown', start);
-  d.addEventListener('touchstart', start, { passive: false });
-  document.addEventListener('mousemove', move);
-  document.addEventListener('touchmove', move, { passive: false });
-  document.addEventListener('mouseup', end);
-  document.addEventListener('touchend', end);
+
+  // One pointer path instead of a parallel mouse pair and touch pair. Pointer
+  // capture means a drag that leaves the dial still tracks, which the old
+  // document-level move listeners were emulating, and it picks up pen input
+  // that neither branch handled.
+  d.addEventListener('pointerdown', e => {
+    start(e);
+    if (drag && d.setPointerCapture) { try { d.setPointerCapture(e.pointerId); } catch (err) {} }
+  });
+  d.addEventListener('pointermove', move);
+  d.addEventListener('pointerup', end);
+  d.addEventListener('pointercancel', end);
+
+  // Keyboard equivalent of the drag. Arrows nudge, Shift takes a minute,
+  // Home/End go to the ends — the same contract as a native range input. Clock
+  // mode is a readout, not a control, so it opts out along with a running one.
+  d.addEventListener('keydown', e => {
+    if (running || mode === 'clock') return;
+    const cur = mode === 'stopwatch' ? elapsed : timerDuration;
+    const step = e.shiftKey ? 60000 : 1000;
+    let next = null;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - step;
+    else if (e.key === 'PageUp') next = cur + 60000;
+    else if (e.key === 'PageDown') next = cur - 60000;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 3600000;
+    if (next === null) return;
+    e.preventDefault();
+    next = Math.max(0, Math.min(3600000, next));
+    if (mode === 'stopwatch') elapsed = next;
+    else { timerDuration = next; timerRemaining = next; }
+    updateDisplay();
+    updateRing();
+    a11yDial();
+    say(spokenTime(next));
+  });
 }
 
 // ========== EDIT TITLE ==========
@@ -2537,11 +2682,15 @@ function openDash() {
   renderDash();
   $('dashboard').classList.add('active');
   $('dashScrim').classList.add('active');
+  openModal($('dashboard'), $('closeHistory'));
+  a11ySync();
 }
 
 function closeDash() {
   $('dashboard').classList.remove('active');
   $('dashScrim').classList.remove('active');
+  closeModal();
+  a11ySync();
 }
 
 function renderDash() {
@@ -2871,6 +3020,7 @@ function toggleAmbient(sound) {
   node.start();
 
   document.querySelector('.ambient-btn[data-sound="' + sound + '"]').classList.add('active');
+  say(sound.charAt(0).toUpperCase() + sound.slice(1) + ' sound on');
 }
 
 // ========== QUOTES ==========
@@ -3084,6 +3234,34 @@ function boot() {
 }
 
 // ========== DIAL TICKS ==========
+// Hour numerals on the face. Drawn into the same rotated frame as the ticks —
+// .ring-svg carries rotate(-90deg), so a numeral placed at raw angle n*30
+// lands where you'd expect (12 at the top) but arrives lying on its side. Each
+// glyph is counter-rotated about its own centre to stand back up.
+const NUMERAL_SETS = {
+  quarters: [12, 3, 6, 9],
+  all: [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  minutes: [60, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]
+};
+
+function buildNumerals() {
+  const g = $('numerals');
+  if (!g) return;
+  if (!settings.showNumerals) { g.innerHTML = ''; return; }
+  const set = NUMERAL_SETS[settings.numeralStyle] || NUMERAL_SETS.quarters;
+  const step = 360 / set.length;
+  const r = 84;
+  g.innerHTML = set.map((label, i) => {
+    const deg = i * step;
+    const a = deg * Math.PI / 180;
+    const x = (140 + r * Math.cos(a)).toFixed(2);
+    const y = (140 + r * Math.sin(a)).toFixed(2);
+    return '<text class="numeral" x="' + x + '" y="' + y + '"' +
+      ' transform="rotate(90 ' + x + ' ' + y + ')"' +
+      ' text-anchor="middle" dominant-baseline="central">' + label + '</text>';
+  }).join('');
+}
+
 function buildTicks() {
   let h = '';
   for (let i = 0; i < 60; i++) {
@@ -3094,6 +3272,7 @@ function buildTicks() {
       ' x2="' + (140 + r2 * Math.cos(a)).toFixed(2) + '" y2="' + (140 + r2 * Math.sin(a)).toFixed(2) + '"/>';
   }
   $('ticks').innerHTML = h;
+  litCount = -1;   // classes just got wiped; force the next paintLamps to redraw
 }
 
 // ========== TAB INDICATOR ==========
@@ -3114,7 +3293,15 @@ function moveTab() {
   ind.style.height = a.offsetHeight + 'px';
   ind.style.width = a.offsetWidth + 'px';
   ind.style.transform = 'translateX(' + a.offsetLeft + 'px)';
-  
+
+  // With four tabs on a narrow screen the row scrolls; keep the active tab in
+  // view so a keyboard or shortcut switch doesn't move it somewhere off-screen.
+  const row = a.parentElement;
+  if (row.scrollWidth > row.clientWidth) {
+    const left = a.offsetLeft - (row.clientWidth - a.offsetWidth) / 2;
+    row.scrollTo({ left: Math.max(0, left), behavior: first ? 'auto' : 'smooth' });
+  }
+
   if (first) { void ind.offsetWidth; ind.style.transition = ''; }
 }
 
@@ -3174,7 +3361,8 @@ function buildKeysList() {
 
 function toggleKeys() {
   buildKeysList();
-  $('keysOverlay').classList.toggle('active');
+  const on = $('keysOverlay').classList.toggle('active');
+  if (on) openModal($('keysOverlay')); else closeModal();
 }
 
 // ========== COMMAND PALETTE ==========
@@ -3220,8 +3408,13 @@ function buildPalette() {
   COMMANDS.push(cmd('clock', 'Clock: local time', 'Clock', () => setClockTz('', true)));
   Object.keys(tzMap).forEach(c => COMMANDS.push(cmd('globe', 'Clock: ' + c, 'Clock', () => setClockTz(c, true))));
   
-  ['default', 'minimal', 'aurora', 'matrix', 'sunset', 'neon', 'glass', 'retro', 'cosmic', 'vivaldi']
-    .forEach(t => COMMANDS.push(cmd('layers', 'Theme: ' + t, 'Theme', () => { settings.visualTheme = t; save(); apply(); })));
+  // Sourced from the theme grid rather than a second hardcoded list — adding a
+  // direction is a tile in index.html and nothing else.
+  [...document.querySelectorAll('.theme-opt')].forEach(el => {
+    const t = el.dataset.theme;
+    const name = el.querySelector('.name') ? el.querySelector('.name').textContent : t;
+    COMMANDS.push(cmd('layers', 'Theme: ' + name, 'Theme', () => { settings.visualTheme = t; save(); apply(); }));
+  });
   
   colors.forEach(c => COMMANDS.push(cmd('spark', 'Accent: ' + c.n, 'Colour', () => { settings.colorTheme = c.n; save(); apply(); renderColors(); })));
   
@@ -3240,7 +3433,8 @@ function buildPalette() {
 function togglePalette() {
   const p = $('palette');
   const on = p.classList.toggle('active');
-  if (!on) return;
+  if (!on) { closeModal(); return; }
+  focusReturn = document.activeElement;
   $('paletteInput').value = '';
   renderPalette();
   setTimeout(() => $('paletteInput').focus(), 40);
@@ -3289,6 +3483,289 @@ function runCommand(i) {
   const c = palMatches[i];
   $('palette').classList.remove('active');
   if (c) setTimeout(c.run, 60);
+}
+
+// ========== ACCESSIBILITY ==========
+// The UI is built out of divs that carry meaning in a class (.toggle.active,
+// .theme-opt.active, .sel.open). That's fine to look at and invisible to
+// anything that isn't looking — a screen reader sees an unlabelled group of
+// divs. Rather than hand-write ~60 sets of attributes into the markup and then
+// hand-sync them in updateUI(), one table below says which class maps to which
+// role, and a11ySync() mirrors the class state onto ARIA in a single pass at
+// the end of the existing apply cycle. A new toggle picks all this up for free.
+
+// [selector, role, the class that means "on", the ARIA attribute it maps to]
+const A11Y_ROLES = [
+  ['.toggle',     'switch',   'active',    'aria-checked'],
+  ['.theme-opt',  'radio',    'active',    'aria-checked'],
+  ['.color-opt',  'radio',    'active',    'aria-checked'],
+  ['.font-opt',   'radio',    'active',    'aria-checked'],
+  ['.sound-opt',  'radio',    'active',    'aria-checked'],
+  ['.clock-opt',  'checkbox', 'active',    'aria-checked'],
+  ['.seg-btn',    null,       'is-active', 'aria-pressed'],
+  ['.chip',       null,       'active',    'aria-pressed'],
+  ['.mode-tab',   null,       'active',    'aria-selected']
+];
+
+const A11Y_GROUPS = [
+  ['themeGrid', 'radiogroup', 'Visual theme'],
+  ['colorGrid', 'radiogroup', 'Accent colour'],
+  ['fontGrid',  'radiogroup', 'Display font'],
+  ['soundGrid', 'radiogroup', 'Alert sound'],
+  ['clockGrid', 'group',      'World clock cities'],
+  ['tzGrid',    'radiogroup', 'Clock timezone']
+];
+
+// Reads the visible label out of the row a control sits in, so the accessible
+// name is the same string on screen and can't drift from it.
+function rowLabel(el) {
+  const row = el.closest('.setting-row, .slider-row');
+  if (!row) return ['', ''];
+  const lab = row.querySelector('.setting-label, label');
+  if (!lab) return ['', ''];
+  // .row-sub is the small explanatory line; it belongs in the description, not
+  // the name, or every switch announces a paragraph.
+  const sub = lab.querySelector('.row-sub');
+  const subText = sub ? sub.textContent.trim() : '';
+  const clone = lab.cloneNode(true);
+  clone.querySelectorAll('.row-sub').forEach(n => n.remove());
+  return [clone.textContent.trim(), subText];
+}
+
+function a11yInit() {
+  A11Y_ROLES.forEach(([sel, role, , attr]) => {
+    document.querySelectorAll(sel).forEach(el => {
+      if (role && !el.getAttribute('role')) el.setAttribute('role', role);
+      // Native <button> is already in the tab order; a div is not.
+      if (el.tagName !== 'BUTTON' && !el.hasAttribute('tabindex')) el.tabIndex = 0;
+      if (!el.hasAttribute(attr)) el.setAttribute(attr, 'false');
+    });
+  });
+
+  document.querySelectorAll('.toggle').forEach(t => {
+    const [name, desc] = rowLabel(t);
+    if (name) t.setAttribute('aria-label', desc ? name + '. ' + desc : name);
+  });
+
+  A11Y_GROUPS.forEach(([id, role, label]) => {
+    const g = $(id);
+    if (!g) return;
+    g.setAttribute('role', role);
+    g.setAttribute('aria-label', label);
+  });
+
+  // Sliders are native <input type="range"> already — they just have no label
+  // tied to them, and their value reads as a bare number ("280") rather than
+  // the "280px" sitting next to it.
+  document.querySelectorAll('.slider-row').forEach(row => {
+    const inp = row.querySelector('.slider'), lab = row.querySelector('label');
+    if (inp && lab && !lab.htmlFor) lab.htmlFor = inp.id;
+  });
+
+  document.querySelectorAll('.sel-head').forEach(h => {
+    h.setAttribute('role', 'button');
+    if (!h.hasAttribute('tabindex')) h.tabIndex = 0;
+    const body = h.parentElement.querySelector('.sel-body');
+    const lab = h.querySelector('.sel-label');
+    if (lab) h.setAttribute('aria-label', lab.textContent.trim());
+    if (body) {
+      if (!body.id) body.id = h.parentElement.id + 'Body';
+      h.setAttribute('aria-controls', body.id);
+    }
+  });
+
+  // Enter and Space activate a native button for free. Promoted divs get the
+  // same contract here, once, by delegation — so it also covers tiles rendered
+  // later (colours, clocks, timezones, tag chips).
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    const el = e.target;
+    if (!el.matches || el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return;
+    if (!el.matches('.toggle, .theme-opt, .color-opt, .font-opt, .sound-opt, .clock-opt, .sel-head, .tag-chip, .logo[role="button"], .pomo-stat-value[role="button"]')) return;
+    e.preventDefault();
+    // #titleEdit is wired to ondblclick, which a synthetic click won't fire.
+    if (el.id === 'titleEdit') editTitle(); else el.click();
+  });
+
+  // A tablist is expected to behave as one control: Tab reaches it once, then
+  // arrows move between the tabs. Hidden tabs are skipped — the Clock mode ships
+  // off, and arrowing onto a tab that isn't on screen would be a dead stop.
+  const tablist = $('modeTabs');
+  if (tablist) tablist.addEventListener('keydown', e => {
+    const tabs = [...document.querySelectorAll('.mode-tab:not(.hidden)')];
+    const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    let j = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = tabs.length - 1;
+    if (j === null) return;
+    e.preventDefault();
+    tabs[j].focus();
+    tabs[j].click();
+  });
+
+  a11ySync();
+}
+
+// Mirrors class state onto ARIA. Called at the end of updateUI(), so it runs on
+// exactly the same cadence as every other bit of UI sync.
+function a11ySync() {
+  A11Y_ROLES.forEach(([sel, , onClass, attr]) => {
+    document.querySelectorAll(sel).forEach(el =>
+      el.setAttribute(attr, el.classList.contains(onClass) ? 'true' : 'false'));
+  });
+
+  // Roving tabindex: only the selected, visible tab is in the tab order.
+  document.querySelectorAll('.mode-tab').forEach(t => {
+    const hidden = t.classList.contains('hidden');
+    t.tabIndex = (!hidden && t.classList.contains('active')) ? 0 : -1;
+    // A hidden tab is display:none, but say so explicitly — .hidden is a class
+    // here, and nothing guarantees the reader agrees about what it means.
+    t.setAttribute('aria-hidden', hidden ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('.sel').forEach(s => {
+    const h = s.querySelector('.sel-head');
+    if (h) h.setAttribute('aria-expanded', s.classList.contains('open') ? 'true' : 'false');
+  });
+
+  DEPS.forEach(([id]) => {
+    const d = $(id);
+    if (d) d.setAttribute('aria-hidden', d.classList.contains('open') ? 'false' : 'true');
+  });
+
+  document.querySelectorAll('.clock-opt').forEach(c =>
+    c.setAttribute('aria-disabled', c.classList.contains('disabled') ? 'true' : 'false'));
+
+  document.querySelectorAll('.slider-row').forEach(row => {
+    const inp = row.querySelector('.slider'), val = row.querySelector('.slider-val');
+    if (inp && val) inp.setAttribute('aria-valuetext', val.textContent.trim());
+  });
+
+  // The video seek bar sits outside .slider-row and reads out through .bg-time.
+  const seekEl = $('bgSeek');
+  if (seekEl) {
+    seekEl.setAttribute('aria-label', 'Background video position');
+    seekEl.setAttribute('aria-valuetext',
+      ($('bgTimeCur').textContent || '0:00') + ' of ' + ($('bgTimeDur').textContent || '0:00'));
+  }
+
+  document.querySelectorAll('.ambient-btn').forEach(b =>
+    b.setAttribute('aria-pressed', b.classList.contains('active') ? 'true' : 'false'));
+
+  $('voiceBtn').setAttribute('aria-pressed', voiceActive ? 'true' : 'false');
+  $('fullscreenBtn').setAttribute('aria-pressed', settings.fullscreen ? 'true' : 'false');
+  $('settingsBtn').setAttribute('aria-expanded', $('settingsPanel').classList.contains('active') ? 'true' : 'false');
+  $('historyBtn').setAttribute('aria-expanded', $('dashboard').classList.contains('active') ? 'true' : 'false');
+  $('playBtn').setAttribute('aria-label', running ? 'Pause' : 'Start');
+
+  a11yDial();
+}
+
+// The dial is a slider while it's settable. In Clock mode it isn't a control at
+// all — it's a readout — so it drops the slider role rather than claiming a
+// value range nothing can change.
+function a11yDial() {
+  const d = $('dial');
+  if (!d) return;
+  if (mode === 'clock') {
+    d.setAttribute('role', 'img');
+    d.removeAttribute('aria-valuenow');
+    d.removeAttribute('aria-valuetext');
+    d.setAttribute('aria-label', 'Clock face showing ' + ($('timeDisplay').textContent || 'the current time'));
+    d.tabIndex = -1;
+    return;
+  }
+  d.setAttribute('role', 'slider');
+  d.tabIndex = 0;
+  d.setAttribute('aria-label', 'Duration. Drag the ring, or use the arrow keys, to set the time.');
+  const ms = mode === 'stopwatch' ? elapsed : timerRemaining;
+  d.setAttribute('aria-valuenow', Math.round(ms / 1000));
+  d.setAttribute('aria-valuetext', spokenTime(ms));
+  // Dragging only sets a time while stopped; while running the ring is output.
+  d.setAttribute('aria-readonly', running ? 'true' : 'false');
+}
+
+// "01:30.00" is read out character by character. This isn't.
+function spokenTime(ms) {
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  const bits = [];
+  if (h) bits.push(h + (h === 1 ? ' hour' : ' hours'));
+  if (m) bits.push(m + (m === 1 ? ' minute' : ' minutes'));
+  if (s || !bits.length) bits.push(s + (s === 1 ? ' second' : ' seconds'));
+  return bits.join(' ');
+}
+
+// Announcements. Two channels: `polite` waits for a pause in speech and is used
+// for anything the user just did; `assertive` interrupts and is reserved for a
+// timer actually reaching zero, which is the one event they may not be looking
+// at the screen for.
+let lastSaid = '';
+function say(msg, assertive) {
+  const el = $(assertive ? 'a11yAlert' : 'a11yLive');
+  if (!el || msg === lastSaid) return;
+  lastSaid = msg;
+  // Clearing first forces a re-announcement when the same string repeats.
+  el.textContent = '';
+  setTimeout(() => { el.textContent = msg; }, 30);
+}
+
+// ========== FOCUS MANAGEMENT ==========
+// A dialog that doesn't trap focus isn't modal — Tab moves out of it, into the
+// page behind, and the reader carries on narrating a UI the user can't see.
+let focusReturn = null;
+
+function focusables(root) {
+  return [...root.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select, textarea, ' +
+    '[tabindex]:not([tabindex="-1"]), .toggle, .theme-opt, .color-opt, .font-opt, .sound-opt, .clock-opt, .sel-head'
+  )].filter(el => el.offsetParent !== null || el === document.activeElement);
+}
+
+function trapFocus(e) {
+  const root = document.querySelector('.panel.active, .dash.active, .palette.active, .keys-overlay.active');
+  if (!root || e.key !== 'Tab') return;
+  const items = focusables(root);
+  if (!items.length) return;
+  const first = items[0], last = items[items.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  else if (!root.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+}
+
+// Remembers where focus was so closing a dialog returns it there, rather than
+// dumping the user back at the top of the document.
+function openModal(el, focusFirst) {
+  focusReturn = document.activeElement;
+  document.body.classList.add('modal-open');
+  setTimeout(() => {
+    const target = focusFirst || focusables(el)[0];
+    if (target) target.focus();
+  }, 60);
+}
+
+function closeModal() {
+  document.body.classList.remove('modal-open');
+  if (focusReturn && document.contains(focusReturn)) focusReturn.focus();
+  focusReturn = null;
+}
+
+// ========== SERVICE WORKER ==========
+// Registered late and guarded, because this is a genuinely optional layer: the
+// app has to keep working from file:// (where registration throws) and over
+// plain http on a LAN (where it's simply unavailable).
+function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  if (location.protocol === 'file:') return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      // A failed registration costs nothing here — everything still runs from
+      // the network. Not worth surfacing to the user.
+    });
+  });
 }
 
 // ========== START ==========

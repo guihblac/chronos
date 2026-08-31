@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Chronos">
+  <defs>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <radialGradient id="face" cx="34%" cy="26%" r="78%">
+      <stop offset="0%" stop-color="#1b1b28"/>
+      <stop offset="60%" stop-color="#12121a"/>
+      <stop offset="100%" stop-color="#0d0d14"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0a0a0f"/>
+  <circle cx="256" cy="256" r="150" fill="url(#face)" stroke="#1e1e2e" stroke-width="2"/>
+
+  <!-- Unswept track, then the progress arc: the dial at roughly two thirds. -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#1e1e2e" stroke-width="22"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#ring)" stroke-width="22"
+          stroke-linecap="round" stroke-dasharray="942.48" stroke-dashoffset="314"
+          transform="rotate(-90 256 256)"/>
+
+  <!-- The head of the sweep, as on the live ring. -->
+  <circle cx="406" cy="256" r="13" fill="#818cf8"
+          transform="rotate(150 256 256)"/>
+
+  <!-- Hands at ten past two, so the mark reads as a clock at 32px. -->
+  <g stroke="#ffffff" stroke-linecap="round" fill="none">
+    <line x1="256" y1="256" x2="256" y2="168" stroke-width="18"/>
+    <line x1="256" y1="256" x2="318" y2="290" stroke-width="14" opacity=".72"/>
+  </g>
+  <circle cx="256" cy="256" r="11" fill="#0a0a0f" stroke="#ffffff" stroke-width="6"/>
+</svg>
