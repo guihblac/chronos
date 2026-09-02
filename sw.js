@@ -9,7 +9,7 @@
 // that doesn't match, so a bumped version is what actually evicts the old
 // build — without it a user sits on a cached copy indefinitely.
 
-const SHELL_VERSION = 'chronos-shell-v14';
+const SHELL_VERSION = 'chronos-shell-v24';
 const FONT_VERSION  = 'chronos-fonts-v1';
 
 // Relative, not absolute: this has to work from a GitHub Pages project path

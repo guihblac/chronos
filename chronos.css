@@ -1376,6 +1376,7 @@ body.visual-sunset::before {
   background: var(--card);
   color: var(--text);
   font: inherit;
+  transition: box-shadow var(--t1) var(--e-out), border-color var(--t1) var(--e-out);
   font-size: calc(14px * var(--ui-scale));
 }
 
@@ -1433,8 +1434,8 @@ body.visual-sunset::before {
 }
 
 .color-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
 }
 
@@ -1689,6 +1690,7 @@ body.visual-sunset::before {
   background: var(--card);
   color: var(--text);
   font-size: calc(13px * var(--ui-scale));
+  transition: box-shadow var(--t1) var(--e-out), border-color var(--t1) var(--e-out);
   cursor: pointer;
 }
 
@@ -4825,6 +4827,44 @@ body {
   .quote-text { font-size: calc(14px * var(--ui-scale)); }
 }
 
+/* .ambient-bar and .quote-container are position:fixed against the viewport
+   (see their own rules), independent of how tall the flow content above them
+   happens to be. Nothing sized the dial against the vertical space left over,
+   so on any short-but-wide viewport -- a plain 1280x720 window, not an edge
+   case -- the dial+controls column runs right through the docked ambient bar.
+   Shrinking the dial the same way the max-width breakpoint already does
+   reclaims the room the fixed dock needs. */
+@media (max-height: 760px) {
+  .dial { width: 260px; height: 260px; }
+}
+
+/* Same fixed-vs-flow collision as above, but worse: below 1100px the layout
+   drops to a single stacked column (see STAGE), so the rail/dial/controls
+   run gets tall enough that the fixed ambient bar and quote box land on top
+   of whatever rail is still in view. On a phone that's the Today card, the
+   quote and the sound icons all rendering over each other at once. Letting
+   both sit in normal flow instead means the page scrolls past them like
+   everything else. Fullscreen keeps its own fixed choreography (see
+   FULLSCREEN MODE below) and is excluded. */
+@media (max-width: 1099px) {
+  body:not(.fullscreen) .ambient-bar {
+    position: static;
+    transform: none;
+    width: fit-content;
+    margin: var(--s5) auto 0;
+  }
+
+  body:not(.fullscreen) .quote-container {
+    position: static;
+    transform: none;
+    margin: var(--s5) auto var(--s6);
+  }
+
+  body:not(.fullscreen) .quote-container.show {
+    transform: none;
+  }
+}
+
 /* ========== INTERACTION STATES ==========
    Deliberately near the end of the sheet: these are momentary overrides that
    need to beat whatever earlier rule normally governs the property.
@@ -5375,6 +5415,39 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
   box-shadow: inset 0 3px 12px rgba(0, 0, 0, .55), 0 2px 0 rgba(0, 0, 0, .45);
 }
 
+/* Dark mode's window is already near-black (--border: #141419), which is
+   exactly why the sodium-amber digits read clearly against it — 9.2:1. Light
+   mode reused the same --border token, but there it's a pale grey-tan
+   (#A8A496), because --border does double duty elsewhere as a general UI
+   line colour that's supposed to be subtle. Against that, the light reading's
+   own amber (#C8901A, chosen to keep the same warmth without dark mode's
+   full sodium brightness) measured 1.13:1 — a genuine failure, not a
+   stylistic quibble; those digits were close to unreadable. Rather than
+   darken the accent into muddy brown chasing a number, the window itself
+   gets its own colour here, doing for light mode what --border already does
+   for free in dark mode: an actually recessed, actually dark display behind
+   the glass. 5.6:1 against the unchanged accent. */
+.visual-paceclock.light .dial {
+  background: #26231D;
+}
+
+/* --text2 at the app-wide 50% opacity (.time-label, .drag-hint) is calibrated
+   for sitting on --card, which is what every other theme's dial background
+   actually is. Pace Clock's dial background is the recessed window above —
+   deliberately not --card — and against it that pairing measured 2.32:1 in
+   the dark reading and 1.51:1 in the light one: both real failures, not a
+   side effect of the fix above. A dedicated on-window colour, calibrated
+   against the window each reading actually has, replaces the generic
+   assumption for just the text that actually sits on this surface. */
+.visual-paceclock { --window-text: #8C8D96; }
+.visual-paceclock.light { --window-text: #A19E93; }
+
+.visual-paceclock .time-label,
+.visual-paceclock .drag-hint {
+  color: var(--window-text);
+  opacity: 1;
+}
+
 .visual-paceclock .time {
   font-family: var(--font-display);
   font-weight: 900;
@@ -5595,15 +5668,23 @@ body.theme-swap .dial {
 }
 
 
-/* ========== FOUR MODE TABS ==========
-   The row was proportioned for three. Enabling Clock adds a fourth and the
-   horizontal padding is what has to give — apply() writes the live count onto
-   #modeTabs so the rule keys off what's actually on screen rather than off a
-   breakpoint that can't see the setting. */
+/* ========== FOUR OR FIVE MODE TABS ==========
+   The row was proportioned for three. Enabling Clock adds a fourth, Metronome
+   a fifth, and the horizontal padding is what has to give — apply() writes the
+   live count onto #modeTabs so the rule keys off what's actually on screen
+   rather than off a breakpoint that can't see the setting. Five needs the same
+   treatment as four, just tighter, since there's less room to divide up. */
 .mode-tabs[data-tabs="4"] .mode-tab {
   padding-left: 14px;
   padding-right: 14px;
   letter-spacing: 0;
+}
+
+.mode-tabs[data-tabs="5"] .mode-tab {
+  padding-left: 10px;
+  padding-right: 10px;
+  letter-spacing: 0;
+  font-size: calc(13px * var(--ui-scale));
 }
 
 @media (max-width: 720px) {
@@ -5612,9 +5693,15 @@ body.theme-swap .dial {
     padding-right: 11px;
     font-size: calc(13px * var(--ui-scale));
   }
+
+  .mode-tabs[data-tabs="5"] .mode-tab {
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: calc(12px * var(--ui-scale));
+  }
 }
 
-/* Narrower than this, four labels genuinely don't fit however tight the padding
+/* Narrower than this, the labels genuinely don't fit however tight the padding
    gets. With nowrap they'd spill out of the rounded container instead, so the
    row scrolls: still one line tall, still full labels, and the active tab is
    brought into view by moveTab(). Scrollbar hidden because the row is short
@@ -5623,7 +5710,8 @@ body.theme-swap .dial {
    #tabInd is absolutely positioned inside this box, so it joins the scrollable
    overflow area and travels with the tabs rather than detaching from them. */
 @media (max-width: 460px) {
-  .mode-tabs[data-tabs="4"] {
+  .mode-tabs[data-tabs="4"],
+  .mode-tabs[data-tabs="5"] {
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
@@ -5632,12 +5720,1144 @@ body.theme-swap .dial {
     overscroll-behavior-x: contain;
   }
 
-  .mode-tabs[data-tabs="4"]::-webkit-scrollbar { display: none; }
+  .mode-tabs[data-tabs="4"]::-webkit-scrollbar,
+  .mode-tabs[data-tabs="5"]::-webkit-scrollbar { display: none; }
 
-  .mode-tabs[data-tabs="4"] .mode-tab {
+  .mode-tabs[data-tabs="4"] .mode-tab,
+  .mode-tabs[data-tabs="5"] .mode-tab {
     padding-left: 12px;
     padding-right: 12px;
     font-size: calc(12px * var(--ui-scale));
     flex: 0 0 auto;
   }
+}
+
+/* ==========================================================================
+   ROUND 2 — three more directions, further out. A sundial, a mechanical vane
+   clock and a chart recorder: three positions on how a number should change,
+   by shadow, by falling, and by being drawn.
+   ========================================================================== */
+
+/* ---------- 2a · GNOMON — sundial, progress drawn in shadow ----------------
+   A literal gnomon blade cast as a soft-edged triangle over the dial, dense
+   sun-ray ticks, huge incised numerals, and a page stripped down to hairlines
+   and pill buttons — the calmest and most typographic of the six. */
+.visual-gnomon {
+  --bg: #DCD8CB;
+  --card: #F2EFE3;
+  --border: #B6B3A4;
+  --text: #22282B;
+  --text2: #7E8378;
+  --accent: #2E4A5C;
+  --accent2: #4A6A80;
+  --edge: rgba(34, 40, 43, .05);
+  --font-ui: 'Jost', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
+  --font-display: 'Jost', system-ui, sans-serif;
+  --lift: none;
+  --glow: none;
+  --blur-chrome: none;
+  --blur-surface: none;
+  background: var(--bg);
+}
+
+.visual-gnomon.light {
+  --bg: #1B2124;
+  --card: #232A2E;
+  --border: #39434A;
+  --text: #DDE4E2;
+  --text2: #7E8378;
+  --accent: #6E93A8;
+  --accent2: #8FB0C2;
+  --edge: rgba(221, 228, 226, .05);
+}
+
+.visual-gnomon .top-bar { align-items: flex-start; }
+
+/* "LAT 41.39 · AZ 128°" — decorative flavour text under the wordmark, not
+   live data. Static content is honest here: a real sun azimuth would need
+   geolocation the app has no other use for, and the brief's own mockup
+   invents the same fixed reading. */
+.visual-gnomon .logo {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  display: block;
+}
+
+.visual-gnomon .logo::after {
+  content: 'LAT 41.39 \00b7  AZ 128\00b0';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--ui-scale));
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-transform: none;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+/* Text tabs on a hairline, no pill container — the same technique Bahnhof
+   uses, in slate instead of red. */
+.visual-gnomon .mode-tabs {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0;
+  gap: var(--s4);
+  box-shadow: none;
+}
+
+.visual-gnomon .mode-tab {
+  padding: 8px 2px 12px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text2);
+}
+
+.visual-gnomon .mode-tab.active { color: var(--text); background: transparent; }
+
+.visual-gnomon #tabInd {
+  background: var(--accent);
+  border-radius: 0;
+  top: auto;
+  bottom: -1px;
+  height: 2px;
+}
+
+/* ----- Rails: hairline rows, no card chrome ----- */
+.visual-gnomon .analytics-mini,
+.visual-gnomon .laps-stats,
+.visual-gnomon .tag-card,
+.visual-gnomon .quote-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.visual-gnomon .analytics-row {
+  border-bottom: 1px solid var(--border);
+  padding: 9px 0;
+}
+
+.visual-gnomon .analytics-label {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.visual-gnomon .analytics-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+/* The donut stays — a dome-shaped rebuild of it isn't worth the structural
+   risk — but it takes the theme's single cold blue rather than the accent
+   gradient every other theme shares. */
+.visual-gnomon .goal-fg { stroke: var(--accent) !important; }
+.visual-gnomon .goal-bg { stroke: var(--border); }
+
+/* Presets and laps: plain rows on a hairline, active marked with a dot on the
+   right rather than a filled pill. */
+.visual-gnomon .preset-btn,
+.visual-gnomon .lap-item {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  margin-bottom: 0;
+  padding: 11px 2px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.visual-gnomon .preset-btn { text-align: left; position: relative; }
+
+.visual-gnomon .preset-btn.active::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+
+.visual-gnomon .lap-bar { display: none; }
+.visual-gnomon .lap-item:hover { transform: none; border-color: var(--accent); }
+
+/* ----- The dial ----- */
+.visual-gnomon .dial {
+  background: transparent;
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+
+.visual-gnomon .ring-progress { stroke: var(--accent); stroke-width: 1.5; stroke-linecap: butt; opacity: 1; }
+.visual-gnomon .ring-bg { stroke: var(--border); stroke-width: 1; }
+.visual-gnomon .ring-head { fill: var(--accent); filter: none; r: 3; }
+
+/* Sun rays rather than a clock's evenly-weighted ticks: minor marks stay thin
+   and short, majors go long, thick and dark — the two densities are what
+   read as a fan of rays instead of a minute scale. */
+.visual-gnomon .tick { stroke: var(--text2); opacity: .4; stroke-width: 1; }
+.visual-gnomon .tick.maj { stroke: var(--text); opacity: .9; stroke-width: 2.5; }
+
+.visual-gnomon .time-label {
+  font-family: var(--font-ui);
+  letter-spacing: .3em;
+  opacity: .65;
+}
+
+/* Incised, large, black — a departure-board numeral, not a digital one. */
+.visual-gnomon .time {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-shadow: none;
+}
+
+.visual-gnomon .time .sep { opacity: 1; font-weight: 500; }
+.visual-gnomon .time .ms { font-size: .3em; opacity: .7; color: var(--accent); }
+
+.visual-gnomon .lap-action-btn { font-family: var(--font-ui); }
+
+/* Outlined pills, not icon circles — RESET / PAUSE / MARK as the mockup shows.
+   Same technique as Vane and Kymograph: hide the injected SVG, supply the
+   visible label from the aria-label the JS already keeps current. */
+.visual-gnomon .ctrl-btn {
+  border-radius: 999px;
+  border: 1px solid var(--text);
+  background: transparent;
+  width: auto;
+  height: auto;
+  flex: 1;
+  padding: 15px 6px;
+  /* flex:1 with no min-width override leaves the browser's default
+     (min-width: auto), which refuses to shrink a flex item below its own
+     content width — so at anything above 100% UI scale, or just three
+     buttons dividing an ~340px dial, the text had nowhere to go but wrap,
+     and a wrapped second line had nowhere to go inside a box padded for
+     one. min-width: 0 lets it actually shrink; nowrap plus an ellipsis
+     fallback means it degrades by truncating instead of by wrapping or
+     spilling out of the button. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-size: calc(12px * var(--ui-scale));
+  box-shadow: none;
+}
+
+.visual-gnomon .ctrl-btn svg { display: none; }
+
+.visual-gnomon .ctrl-btn.primary {
+  width: auto; height: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  /* The base .ctrl-btn.primary rule sizes its font for a 72px icon circle
+     (24px). Left alone, Play/Pause renders at nearly double Reset/Lap's text
+     size — three buttons that are supposed to read as one row end up looking
+     like two different controls. Set explicitly rather than relying on this
+     rule's higher specificity to carry it, so a later edit to either rule
+     can't quietly reintroduce the mismatch. */
+  font-size: calc(12px * var(--ui-scale));
+  box-shadow: none;
+}
+
+.visual-gnomon #resetBtn::after { content: 'Reset'; }
+.visual-gnomon #lapBtn::after { content: 'Mark'; }
+.visual-gnomon #playBtn[aria-label="Start"]::after { content: 'Start'; }
+.visual-gnomon #playBtn[aria-label="Pause"]::after { content: 'Pause'; }
+
+/* SIGNATURE — the gnomon blade. A real triangular silhouette (not a diffuse
+   glow): apex near the top of the dial, widening as it falls, soft-edged with
+   a blur so it reads as cast rather than drawn. Sits behind the readout
+   (z-index below .time, above the ticks) and is the whole reason the numerals
+   sit low — the blade's base is where they land. Off the signature, the
+   readout returns to dial-centre and the theme is just the stone palette. */
+.visual-gnomon .dial { position: relative; }
+
+.visual-gnomon.signature .dial::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 6%;
+  width: 46%;
+  height: 62%;
+  z-index: 1;
+  pointer-events: none;
+  transform: translateX(-50%);
+  clip-path: polygon(48% 0%, 52% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 55%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 30%, transparent) 100%);
+  filter: blur(5px);
+}
+
+.visual-gnomon.signature .time,
+.visual-gnomon.signature .time-label,
+.visual-gnomon.signature #splitDisplay {
+  position: relative;
+  z-index: 2;
+  transform: translateY(16%);
+}
+
+/* Dusk: the blade becomes the lit face of the plate rather than its shadow. */
+.visual-gnomon.light.signature .dial::before {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 35%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 100%);
+}
+
+.visual-gnomon.has-bg .dial,
+.visual-gnomon.has-bg .analytics-mini {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ---------- 2b · VANE — split-flap, the number falls ----------------------
+   Each digit is a real cream card sitting over the dial, with a brass hinge
+   line and a gold arc peeking above and below the row. Built entirely on the
+   existing per-character spans in .time — no markup change, no new JS. */
+.visual-vane {
+  --bg: #131316;
+  --card: #1C1C20;
+  --border: #2A2A2E;
+  --text: #EFEAE0;
+  --text2: #8E8A82;
+  --accent: #C8A24A;
+  --accent2: #C8A24A;
+  --edge: rgba(239, 234, 224, .05);
+  --font-ui: 'Oswald', 'Barlow Condensed', system-ui, sans-serif;
+  --font-mono: 'Space Grotesk', ui-monospace, monospace;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --lift: 0 2px 0 rgba(0, 0, 0, .5);
+  --glow: none;
+  --blur-chrome: none;
+  /* The flap fall is a mechanism, not a UI transition — 120ms and
+     deliberately off the four-step scale. Named so it's an explicit
+     exception rather than a magic number buried in a keyframe. */
+  --t-flap: 120ms;
+  background: var(--bg);
+}
+
+.visual-vane.light {
+  --bg: #D8D5CE;
+  --card: #E8E5DE;
+  --border: #BCB8AF;
+  --text: #1B1B1F;
+  --text2: #6C6860;
+  --accent: #8A6A1E;
+  --edge: rgba(255, 255, 255, .6);
+  --lift: 0 1px 0 rgba(0, 0, 0, .16);
+}
+
+.visual-vane .logo { font-family: var(--font-ui); font-weight: 700; letter-spacing: .22em; text-transform: uppercase; }
+
+/* Segmented boxes rather than a sliding pill — each tab is its own plate,
+   the active one lit. */
+.visual-vane .mode-tabs {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0;
+  gap: 0;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.visual-vane .mode-tab {
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-size: calc(12px * var(--ui-scale));
+  padding: 11px 16px;
+}
+
+.visual-vane .mode-tab:last-of-type { border-right: none; }
+.visual-vane .mode-tab.active { background: var(--text); color: var(--bg); }
+.visual-vane.light .mode-tab.active { background: var(--text); color: var(--bg); }
+.visual-vane #tabInd { display: none; }
+
+/* ----- Rails ----- */
+.visual-vane .analytics-mini,
+.visual-vane .laps-stats,
+.visual-vane .tag-card,
+.visual-vane .quote-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.visual-vane .analytics-row { border-bottom: 1px solid var(--border); }
+.visual-vane .analytics-row:last-child { border-bottom: none; }
+
+.visual-vane .analytics-label,
+.visual-vane .laps-title,
+.visual-vane .pomo-stat-label {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+.visual-vane .goal-fg { stroke: var(--accent) !important; }
+.visual-vane .goal-num { font-family: var(--font-mono); font-weight: 600; }
+
+.visual-vane .preset-btn {
+  border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.visual-vane .preset-btn.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+.visual-vane .lap-item { border-radius: 4px; background: var(--card); border: 1px solid var(--border); }
+.visual-vane .lap-item:hover { transform: none; border-color: var(--accent); }
+
+/* The freshest lap is the one still in brass — everything older fades to the
+   ordinary text colour, so the list reads newest-first without a label. */
+.visual-vane .lap-item:first-child .lap-split { color: var(--accent); }
+
+/* ----- The dial: dark disc, dense hairline ticks, thin gold arc ----- */
+.visual-vane .dial {
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 5%, var(--card)), var(--card) 70%);
+  border: 1px solid var(--border);
+  box-shadow: var(--lift), inset 0 0 40px rgba(0, 0, 0, .4);
+}
+
+.visual-vane .ring-bg { stroke: var(--border); stroke-width: 1; }
+.visual-vane .ring-progress { stroke: var(--accent); stroke-width: 1.5; opacity: .9; }
+.visual-vane .ring-head { fill: var(--accent); filter: drop-shadow(0 0 4px var(--accent)); r: 3; }
+.visual-vane .tick { stroke: var(--text2); opacity: .3; stroke-width: 1; }
+.visual-vane .tick.maj { stroke: var(--text2); opacity: .55; }
+
+.visual-vane .time-label {
+  font-family: var(--font-ui);
+  letter-spacing: .24em;
+}
+
+.visual-vane .time { font-family: var(--font-mono); font-weight: 700; }
+
+/* SIGNATURE — the flap cards. Each character span becomes a physical cream
+   card with its own shadow and a hinge rule at the vertical centre; a gap
+   between cards lets the dark disc and its ticks show as seams, and because
+   the row sits at the dial's own centre the gold ring is visible above and
+   below it without any extra markup. Off the signature this collapses back
+   to plain mono digits on the disc — the theme survives without the effect. */
+.visual-vane.signature .time {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.visual-vane.signature .time .dg {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: .92em;
+  background: var(--card);
+  color: var(--text);
+  border-radius: 3px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .04) inset;
+  padding: .06em .04em;
+}
+
+/* The hinge: one brass rule at the card's vertical centre. A gradient rather
+   than a border, so it sits over the digit instead of interrupting the card's
+   outline. */
+.visual-vane.signature .time .dg::after {
+  content: '';
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 50%;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  transform: translateY(-.5px);
+}
+
+.visual-vane.signature .time .sep {
+  color: var(--accent);
+  opacity: 1;
+  padding: 0 1px;
+}
+
+.visual-vane.signature .time .ms { display: none; }
+
+/* The fall: reuses the .roll class updateDisplay() already applies to any
+   digit that just changed — no second animation pipeline. */
+.visual-vane.signature .time .dg.roll {
+  animation: vane-flap var(--t-flap) cubic-bezier(.4, 0, .7, 1);
+}
+
+@keyframes vane-flap {
+  0%   { transform: perspective(200px) rotateX(-58deg); filter: brightness(1.4); }
+  70%  { transform: perspective(200px) rotateX(5deg); }
+  100% { transform: perspective(200px) rotateX(0deg); filter: brightness(1); }
+}
+
+.motion-none .visual-vane.signature .time .dg.roll { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .visual-vane.signature .time .dg.roll { animation: none; }
+}
+
+.visual-vane.has-bg .dial { background: var(--card); }
+
+/* Text-labelled buttons, rectangular plates rather than icon circles. */
+.visual-vane .ctrl-btn {
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  width: auto;
+  height: auto;
+  flex: 1;
+  padding: 15px 6px;
+  /* Same fix as Gnomon and Kymograph — flex:1 alone doesn't let a button
+     shrink below its own text width, so without this the label could wrap
+     inside a box only sized for one line. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-size: calc(13px * var(--ui-scale));
+}
+
+.visual-vane .ctrl-btn svg { display: none; }
+.visual-vane .ctrl-btn.primary {
+  width: auto; height: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  /* Neither this rule nor the base .ctrl-btn one above it reset font-size or
+     box-shadow, so Play/Pause was inheriting the base component's 24px icon
+     sizing and its accent glow — nearly double Reset/Lap's text, with a halo
+     neither of them has. Explicit here so the three buttons actually match. */
+  font-size: calc(13px * var(--ui-scale));
+  box-shadow: none;
+}
+.visual-vane #resetBtn::after { content: 'Reset'; }
+.visual-vane #lapBtn::after { content: 'Lap'; }
+.visual-vane #playBtn[aria-label="Start"]::after { content: 'Start'; }
+.visual-vane #playBtn[aria-label="Pause"]::after { content: 'Pause'; }
+
+/* ---------- 2c · KYMOGRAPH — chart recorder, time leaves a trace ----------
+   One continuous graph sheet under the whole app, framed like an instrument
+   panel, with a literal stylus arm hanging into the dial from twelve o'clock. */
+.visual-kymograph {
+  --bg: #E6E9E0;
+  --card: #DDE1D6;
+  --border: #B7BDAF;
+  --text: #141F1C;
+  --text2: #5C6B62;
+  --accent: #B4245A;
+  --accent2: #5C6B62;
+  --edge: rgba(20, 31, 28, .05);
+  --font-ui: 'Libre Franklin', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
+  --font-display: 'Spline Sans Mono', ui-monospace, monospace;
+  --lift: none;
+  --glow: none;
+  --blur-chrome: none;
+  --blur-surface: none;
+  --grid-pitch: 24px;
+  background: var(--bg);
+}
+
+.visual-kymograph.light {
+  --bg: #131A18;
+  --card: #182120;
+  --border: #2C3A36;
+  --text: #DCE5E0;
+  --text2: #7C8B82;
+  --accent: #E8497F;
+  --edge: rgba(220, 229, 224, .05);
+}
+
+/* One continuous sheet. Fixed attachment anchors the grid to the viewport
+   rather than to each element, so the lines genuinely don't restart at a
+   panel edge — the whole page is one piece of graph paper, not a set of
+   cards with a texture on them. */
+body.visual-kymograph {
+  background-image:
+    repeating-linear-gradient(0deg, var(--border) 0 1px, transparent 1px var(--grid-pitch)),
+    repeating-linear-gradient(90deg, var(--border) 0 1px, transparent 1px var(--grid-pitch));
+  background-attachment: fixed;
+  background-color: var(--bg);
+}
+
+/* The instrument bezel: a fixed frame around the viewport. Pointer-events:none
+   so it never intercepts a click meant for the page beneath it. */
+.visual-kymograph::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  border: 3px solid var(--text);
+}
+
+.visual-kymograph .logo {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  display: block;
+}
+
+/* "CH.1 · 25mm/min" — the recorder's channel and paper speed. Decorative, the
+   same category as Gnomon's LAT/AZ line: flavour that doesn't claim to be
+   live data. */
+.visual-kymograph .logo::after {
+  content: 'CH.1 \00b7  25mm/min';
+  display: block;
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--ui-scale));
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: .04em;
+  color: var(--text2);
+  margin-top: 3px;
+}
+
+/* Segmented boxes, monochrome — the active channel selector on the panel. */
+.visual-kymograph .mode-tabs {
+  background: var(--bg);
+  border: 1px solid var(--text);
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  box-shadow: none;
+}
+
+.visual-kymograph .mode-tab {
+  border-radius: 0;
+  border-right: 1px solid var(--text);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: calc(11px * var(--ui-scale));
+  padding: 10px 14px;
+}
+
+.visual-kymograph .mode-tab:last-of-type { border-right: none; }
+.visual-kymograph .mode-tab.active { background: var(--text); color: var(--bg); }
+.visual-kymograph #tabInd { display: none; }
+
+/* ----- Rails: instrument-plate cards on the sheet, hard-edged ----- */
+.visual-kymograph .analytics-mini,
+.visual-kymograph .laps-stats,
+.visual-kymograph .tag-card,
+.visual-kymograph .quote-card {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border: 1px solid var(--text);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.visual-kymograph .analytics-label,
+.visual-kymograph .laps-title,
+.visual-kymograph .pomo-stat-label {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: calc(9px * var(--ui-scale));
+}
+
+.visual-kymograph .goal-fg { stroke: var(--accent) !important; }
+
+.visual-kymograph .preset-btn {
+  border-radius: 0;
+  border: 1px solid var(--text);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.visual-kymograph .preset-btn.active { background: var(--text); color: var(--bg); }
+
+.visual-kymograph .lap-item {
+  border-radius: 0;
+  border: 1px solid var(--text);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  padding-left: 26px;
+  position: relative;
+}
+
+.visual-kymograph .lap-item::before {
+  content: '\2014';
+  position: absolute;
+  left: 8px;
+  color: var(--text2);
+  font-family: var(--font-mono);
+}
+
+/* Newest event mark in ink, the rest in pencil. */
+.visual-kymograph .lap-item:first-child::before { color: var(--accent); }
+.visual-kymograph .lap-item:first-child .lap-split { color: var(--accent); }
+.visual-kymograph .lap-item:hover { transform: none; border-color: var(--accent); }
+
+/* ----- The dial: opaque instrument face, dense ray ticks ----- */
+.visual-kymograph .dial {
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border: 2px solid var(--text);
+  box-shadow: none;
+  position: relative;
+}
+
+.visual-kymograph .ring-progress { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: butt; }
+.visual-kymograph .ring-bg { stroke: var(--border); stroke-width: 1; }
+.visual-kymograph .ring-head { fill: var(--accent); filter: none; r: 3.5; }
+.visual-kymograph .tick { stroke: var(--text2); opacity: .4; stroke-width: 1; }
+.visual-kymograph .tick.maj { stroke: var(--text); opacity: .8; stroke-width: 1.5; }
+
+.visual-kymograph .time-label {
+  font-family: var(--font-mono);
+  letter-spacing: .2em;
+}
+
+.visual-kymograph .time {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  letter-spacing: -.015em;
+}
+
+.visual-kymograph .time .ms { color: var(--accent); opacity: 1; }
+
+/* SIGNATURE — the stylus. A pin at twelve o'clock with an arm hanging into
+   the face, trembling once a second: the smallest amount of life that still
+   says the instrument is recording. Two flat shapes on the dial's own
+   ::before/::after, no SVG, no JS. Off the signature the dial is a plain
+   instrument face. */
+.visual-kymograph.signature .dial::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 8%;
+  width: 2px;
+  height: 22%;
+  background: var(--text);
+  z-index: 3;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transform-origin: top center;
+  animation: kymo-stylus 1s steps(2, end) infinite;
+}
+
+.visual-kymograph.signature .dial::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 8%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  z-index: 3;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transform-origin: bottom center;
+  animation: kymo-stylus 1s steps(2, end) infinite;
+}
+
+@keyframes kymo-stylus {
+  0%, 100% { transform: translateX(-50%) rotate(0deg); }
+  50%      { transform: translateX(-50%) rotate(1.5deg); }
+}
+
+@keyframes kymo-stylus-pin {
+  0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+  50%      { transform: translate(-50%, -50%) rotate(1.5deg); }
+}
+
+.visual-kymograph.signature .dial::after { animation-name: kymo-stylus-pin; }
+
+/* Below this a 24px grid crowds the frame, so the pitch coarsens rather than
+   the sheet disappearing. */
+@media (max-width: 460px) {
+  .visual-kymograph { --grid-pitch: 16px; }
+}
+
+/* The grid wants to be seen through and a photo wants to be seen; they can't
+   both win here — the sheet goes fully opaque and the media shows only where
+   nothing else sits on top of it. */
+.visual-kymograph.has-bg .dial,
+.visual-kymograph.has-bg .analytics-mini,
+.visual-kymograph.has-bg .tag-card {
+  background: var(--bg);
+}
+
+.motion-none .visual-kymograph.signature .dial::before,
+.motion-none .visual-kymograph.signature .dial::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .visual-kymograph.signature .dial::before,
+  body:not(.motion-full) .visual-kymograph.signature .dial::after { animation: none; }
+}
+
+/* Rectangular text-labelled buttons, ink-bordered. */
+.visual-kymograph .ctrl-btn {
+  border-radius: 0;
+  border: 1px solid var(--text);
+  width: auto;
+  height: auto;
+  flex: 1;
+  padding: 14px 6px;
+  /* Same fix as Gnomon and Vane, and the one most likely to bite here —
+     REWIND is the longest label of the three buttons across all three
+     themes, and mono faces run wider per character than the sans faces
+     the other two use. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-size: calc(12px * var(--ui-scale));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+
+.visual-kymograph .ctrl-btn svg { display: none; }
+.visual-kymograph .ctrl-btn.primary {
+  width: auto; height: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  /* Same gap as Gnomon and Vane: the base component sizes Play/Pause's font
+     for a 72px icon and adds an accent glow. Reset explicitly so it reads as
+     the same instrument-plate material as Rewind/Mark, just filled in ink. */
+  font-size: calc(12px * var(--ui-scale));
+  box-shadow: none;
+}
+.visual-kymograph #resetBtn::after { content: 'Rewind'; }
+.visual-kymograph #lapBtn::after { content: 'Mark'; }
+.visual-kymograph #playBtn[aria-label="Start"]::after { content: 'Start'; }
+.visual-kymograph #playBtn[aria-label="Pause"]::after { content: 'Pause'; }
+
+/* ---------- Swatches ---------- */
+/* ---------- Reset feedback on the text-button themes ----------
+   .ctrl-btn.spun svg { animation: resetSpin } is the base app's reset feedback
+   — click Reset and the icon does a quick spin. Gnomon, Vane and Kymograph all
+   hide that svg (display:none) to show a text label instead, which silently
+   swallows the spin: the animation still "runs", there is just nothing left
+   for it to be visible on. Rather than leave reset feeling inert in three
+   themes, they get a substitute suited to a physical button — a quick
+   press-and-release scale — on the button itself instead of its icon. */
+.visual-gnomon .ctrl-btn.spun,
+.visual-vane .ctrl-btn.spun,
+.visual-kymograph .ctrl-btn.spun {
+  animation: ctrl-btn-punch .3s var(--e-out);
+}
+
+@keyframes ctrl-btn-punch {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(.94); }
+  100% { transform: scale(1); }
+}
+
+.motion-none .visual-gnomon .ctrl-btn.spun,
+.motion-none .visual-vane .ctrl-btn.spun,
+.motion-none .visual-kymograph .ctrl-btn.spun { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .visual-gnomon .ctrl-btn.spun,
+  body:not(.motion-full) .visual-vane .ctrl-btn.spun,
+  body:not(.motion-full) .visual-kymograph .ctrl-btn.spun { animation: none; }
+}
+
+.sw-gnomon {
+  background:
+    linear-gradient(200deg, transparent 40%, #2E4A5C 40% 62%, transparent 62%),
+    #F2EFE3;
+}
+.sw-vane {
+  background:
+    linear-gradient(0deg, #131316 0 34%, transparent 34%),
+    repeating-linear-gradient(90deg, #EFEAE0 0 6px, #1C1C20 6px 7px);
+  background-color: #EFEAE0;
+}
+.sw-kymograph {
+  background:
+    linear-gradient(28deg, transparent 44%, #B4245A 44% 56%, transparent 56%),
+    repeating-linear-gradient(90deg, #B7BDAF 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(0deg, #B7BDAF 0 1px, transparent 1px 5px),
+    #E6E9E0;
+}
+
+/* ==========================================================================
+   METRONOME — a fifth mode, not a theme. Everything here works identically
+   across all sixteen visual directions by staying on the existing token set
+   (--accent, --card, --border, --t1..t4) rather than introducing its own
+   palette, the same discipline the base dial/rails already follow.
+   ========================================================================== */
+
+/* The ring's normal progress arc reads as "0 to 100% of a duration" — a
+   concept metronome doesn't have. Its own progress signal is the tick lamps
+   below, so the arc and its travelling head are hidden rather than showing a
+   number that means nothing on this screen. */
+.dial.metro-mode .ring-progress,
+.dial.metro-mode .ring-head {
+  opacity: 0 !important;
+}
+
+/* ---------- Pendulum ----------
+   A small ornament perched at the top of the dial rather than a full arm
+   drawn across the face — the face already carries the BPM number and the
+   time-signature label, and a pendulum long enough to read as "classic"
+   would cross straight through both. Pivoting from a fixed point just above
+   the ring and swinging a short arc keeps it legible without colliding with
+   anything else on the dial. */
+.metro-pendulum {
+  display: none;
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.mode-metronome .metro-pendulum { display: block; }
+
+.metro-pendulum-arm {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  width: 2px;
+  height: 34px;
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 40%, transparent));
+  border-radius: 2px;
+  transform-origin: top center;
+  transform: rotate(-20deg);
+  /* --beat-ms is written by updateUI() from the live BPM every time it
+     changes, so the swing always takes exactly one beat regardless of tempo. */
+  transition: transform var(--beat-ms, 500ms) cubic-bezier(.45, 0, .55, 1);
+}
+
+.metro-pendulum.swing-right .metro-pendulum-arm { transform: rotate(20deg); }
+
+.metro-pendulum-bob {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateX(-50%);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* Beat one flashes rather than swings — the pendulum's motion already says
+   "here's a beat", so the downbeat needs a signal that doesn't depend on
+   catching the arm mid-travel. 90ms is short enough to read as a pulse even
+   at a fast tempo rather than smearing into the next beat. */
+.metro-accent {
+  animation: metro-flash 90ms var(--e-out);
+}
+
+@keyframes metro-flash {
+  0%   { box-shadow: var(--lift), 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  30%  { box-shadow: var(--lift), 0 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent); }
+  100% { box-shadow: var(--lift), 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+.motion-none .metro-pendulum-arm,
+.motion-none .metro-accent { transition: none; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .metro-pendulum-arm { transition: none; }
+  body:not(.motion-full) .metro-accent { animation: none; }
+}
+
+/* ---------- Beat lamps ----------
+   Reuses the ring's own tick marks as lamps (the same trick Pace Clock's
+   signature uses on every theme it's paired with) — here a lit lamp is a beat
+   of the CURRENT measure already played, quantised to however many beats the
+   time signature has, not to sixty. Works underneath any theme's own tick
+   styling since it only adds a stroke override, not a replacement rule. */
+.dial.metro-mode .tick.metro-lit {
+  stroke: var(--accent);
+  opacity: 1;
+  transition: stroke var(--t1) linear, opacity var(--t1) linear;
+}
+
+/* ---------- #metroSubSeg (now in Settings) ----------
+   Reuses the app's .seg component for its button chrome, but not its sliding
+   ::before pill — that indicator's position math is hardcoded for a
+   three-item control (see .seg::before) and would land the pill under the
+   wrong button on this four-item one. Suppressed here and replaced with a
+   plain background swap on the active button, which is correct at any item
+   count. */
+#metroSubSeg::before { content: none; }
+
+#metroSubSeg .seg-btn.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 99px;
+}
+
+/* ---------- Metronome presets (right rail) ----------
+   Same component Timer's presets use — .preset-btn, .preset-x, .preset-btn.add
+   — so every theme's own styling for that list already covers this one too.
+   Only the width changes: a named tempo-and-signature reads better as a
+   stacked full-width row than as one of Timer's short duration pills. */
+.metro-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metro-presets.hidden {
+  display: none;
+}
+
+.metro-mark {
+  width: 100%;
+  text-align: left;
+}
+
+/* ---------- Tap flash on the reused Lap button ---------- */
+.tap-flash { animation: metro-tap-flash var(--t2) var(--e-out); }
+
+@keyframes metro-tap-flash {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(.9); }
+  100% { transform: scale(1); }
+}
+
+.motion-none .tap-flash { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.motion-full) .tap-flash { animation: none; }
+}
+
+/* ---------- Lap becomes Tap: label swap on the three text-button themes ----
+   Icon-only themes get this for free — switchMode() repaints #lapBtn's icon
+   from the real ICONS map. These three replaced that icon with generated
+   text, so the text itself needs its own mode-aware swap. */
+body.mode-metronome.visual-gnomon #lapBtn::after,
+body.mode-metronome.visual-vane #lapBtn::after,
+body.mode-metronome.visual-kymograph #lapBtn::after {
+  content: 'Tap';
+}
+
+/* ==========================================================================
+   GNOMON & KYMOGRAPH — chrome polarity correction
+   ==========================================================================
+   Every other theme's bright reading is body.light and its dark reading is
+   the bare class — that's the polarity the app's shared light/dark toggle
+   uses everywhere else, and it's what a whole family of settings-panel chrome
+   (.toggle, .close-panel, .slider, .sel-arrow, .sel-body, .ambient-bar, the
+   panel action buttons) relies on: a hardcoded light-on-dark tint by default,
+   corrected to a dark-on-light tint under .light.
+
+   Gnomon and Kymograph are both light-first themes — the bright reading
+   (limestone; graph paper) is their DEFAULT, un-.light state, and .light is
+   where their dark reading (dusk basalt; night trace) lives. That's backward
+   relative to every other theme, so all of that chrome inherited the wrong
+   half of the fix: a white-on-dark tint that goes nearly invisible on their
+   actual bright surface, and — because their dark reading incorrectly
+   carries .light — the dark-on-light correction going equally invisible on
+   their actual dark surface. Both states of both themes were affected.
+
+   Fixed here with color-mix(var(--text) N%, transparent) rather than trying
+   to chase which literal a given state "should" have — --text already
+   contrasts correctly against whichever of the two readings is actually on
+   screen, in every theme, by construction, so it can't invert. */
+
+.visual-gnomon .toggle,
+.visual-kymograph .toggle {
+  background: color-mix(in srgb, var(--text) 15%, transparent);
+}
+
+.visual-gnomon .close-panel,
+.visual-kymograph .close-panel {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
+.visual-gnomon .close-panel:hover,
+.visual-kymograph .close-panel:hover {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.visual-gnomon .panel-content::-webkit-scrollbar-thumb,
+.visual-kymograph .panel-content::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* The panel's neutral action-button hover (Export, Clear, etc — not the red
+   danger buttons, which stay semantically red in every theme on purpose). */
+.visual-gnomon .panel-btn:not(:disabled):hover, .visual-gnomon .bg-btn:hover,
+.visual-gnomon .order-btn:hover, .visual-gnomon .lap-action-btn:hover,
+.visual-kymograph .panel-btn:not(:disabled):hover, .visual-kymograph .bg-btn:hover,
+.visual-kymograph .order-btn:hover, .visual-kymograph .lap-action-btn:hover {
+  background: color-mix(in srgb, var(--text) 15%, transparent);
+  color: var(--text);
+}
+
+.visual-gnomon .slider,
+.visual-kymograph .slider {
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--text) 35%, transparent) 0%,
+    color-mix(in srgb, var(--text) 35%, transparent) var(--sp, 0%),
+    color-mix(in srgb, var(--text) 12%, transparent) var(--sp, 0%),
+    color-mix(in srgb, var(--text) 12%, transparent) 100%);
+}
+
+.visual-gnomon .sel-arrow,
+.visual-kymograph .sel-arrow {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.visual-gnomon .sel-head:hover .sel-arrow,
+.visual-kymograph .sel-head:hover .sel-arrow {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.visual-gnomon .sel-body,
+.visual-kymograph .sel-body {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.visual-gnomon .ambient-bar,
+.visual-kymograph .ambient-bar {
+  border-color: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.visual-gnomon .sel-swatch,
+.visual-kymograph .sel-swatch {
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
 }

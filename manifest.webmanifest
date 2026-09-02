@@ -67,6 +67,17 @@
           "sizes": "192x192"
         }
       ]
+    },
+    {
+      "name": "Start the metronome",
+      "short_name": "Metronome",
+      "url": "./?mode=metronome",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

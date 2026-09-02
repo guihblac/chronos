@@ -1,7 +1,7 @@
 // ========== GLOBALS ==========
 // Bump on every delivery. Shown in the background diagnostic so we can tell at a
 // glance whether the browser is running this file or a cached older one.
-const BUILD = 'B14 tab row';
+const BUILD = 'B24 sync+icon fix';
 const $ = id => document.getElementById(id);
 const CIRC = 2 * Math.PI * 126;
 
@@ -67,8 +67,8 @@ function setting(path) {
 
 // Declared order is tab order, and it's also the fallback order: when the mode
 // on screen gets hidden, the first enabled one in this list takes over.
-const MODES = ['stopwatch', 'timer', 'pomodoro', 'clock'];
-const MODE_KEYS = { Digit1: 'stopwatch', Digit2: 'timer', Digit3: 'pomodoro', Digit4: 'clock' };
+const MODES = ['stopwatch', 'timer', 'pomodoro', 'clock', 'metronome'];
+const MODE_KEYS = { Digit1: 'stopwatch', Digit2: 'timer', Digit3: 'pomodoro', Digit4: 'clock', Digit5: 'metronome' };
 
 const modeTab = m => document.querySelector('.mode-tab[data-mode="' + m + '"]');
 const enabledModes = () => MODES.filter(m => settings.modes[m]);
@@ -116,6 +116,7 @@ const ICONS = {
   quote: '<path d="M9.5 6.5C7 7.5 5.5 9.8 5.5 12.6V17h5v-5H8.2c0-1.7.6-3 1.8-3.8z"/><path d="M18 6.5c-2.5 1-4 3.3-4 6.1V17h5v-5h-2.3c0-1.7.6-3 1.8-3.8z"/>',
   database: '<ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6"/><path d="M4.5 12c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3"/>',
   sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+  tap: '<circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3"/>',
   bell: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6-2 6h16s-2-1-2-6z"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   type: '<path d="M4 6.5V5h16v1.5"/><path d="M12 5v14"/><path d="M9 19h6"/>',
@@ -476,13 +477,21 @@ const settings = {
   bgVolume: 0.5,
   dailyGoal: 120,
   presets: [60, 180, 300, 600, 1500],
+  metronomePresets: [
+    { name: 'Largo', bpm: 50, num: 4, den: 4 },
+    { name: 'Adagio', bpm: 72, num: 4, den: 4 },
+    { name: 'Andante', bpm: 92, num: 4, den: 4 },
+    { name: 'Moderato', bpm: 114, num: 4, den: 4 },
+    { name: 'Allegro', bpm: 144, num: 4, den: 4 },
+    { name: 'Presto', bpm: 184, num: 4, den: 4 }
+  ],
   recentTags: [],
   shutSections: [],
   hour12: false,
   clockSeconds: false,
-  // Which mode tabs exist. Clock is off by default — three tabs is the shape
-  // this app has always had. At least one is always on; see load().
-  modes: { stopwatch: true, timer: true, pomodoro: true, clock: false },
+  // Which mode tabs exist. Clock is off by default; Metronome ships on, since
+  // it's the reason for this release.
+  modes: { stopwatch: true, timer: true, pomodoro: true, clock: false, metronome: true },
   clockTz: '',        // '' = this device. Otherwise a key into tzMap.
   bgRun: true,        // leaving a mode lets its clock carry on
   clockDate: true,
@@ -491,6 +500,11 @@ const settings = {
   customQuotes: null,
   pomo: { work: 1500, short: 300, long: 900, rounds: 4 },
   pomoVersion: 2,
+  // num/den follow time-signature convention (num beats per measure, each a
+  // den-note); bpm is always denominator-note beats per minute, which is the
+  // one convention that needs no special case for compound meters — 6/8 is
+  // just num:6 den:8, six even pulses, no "dotted quarter" concept required.
+  metronome: { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true },
   sound: true,
   alertSound: 'chime',
   volume: 0.5,
@@ -635,6 +649,7 @@ function init() {
   load();
   paintIcons();
   renderPresets();
+  renderMetroPresets();
   loadBg();
   renderColors();
   renderClocks();
@@ -739,6 +754,15 @@ function load() {
   // hold any number at all.
   if (!settings.pomo || typeof settings.pomo !== 'object') settings.pomo = { work: 1500, short: 300, long: 900, rounds: 4 };
   settings.pomo.rounds = Math.round(clamp(settings.pomo.rounds, 1, MAX_ROUNDS, 4));
+  if (!settings.metronome || typeof settings.metronome !== 'object') {
+    settings.metronome = { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true };
+  }
+  settings.metronome.bpm = Math.round(clamp(settings.metronome.bpm, 30, 300, 120));
+  settings.metronome.num = Math.round(clamp(settings.metronome.num, 1, 16, 4));
+  if (![2, 4, 8, 16].includes(settings.metronome.den)) settings.metronome.den = 4;
+  if (![1, 2, 3, 4].includes(settings.metronome.subdivision)) settings.metronome.subdivision = 1;
+  settings.metronome.distinctSounds = settings.metronome.distinctSounds !== false;
+  sanitiseMetroPresets();
   if (!Array.isArray(history)) history = [];
   settings.fullscreen = false;
 }
@@ -917,6 +941,19 @@ function updateUI() {
   });
   $('bgRunToggle').classList.toggle('active', settings.bgRun);
   $('clockOffNote').style.display = settings.modes.clock ? 'none' : '';
+
+  // Metronome. Tempo and time signature are set from the dial or a preset now
+  // — nothing on the main screen needs syncing for either. Subdivision and the
+  // sound toggle moved to Settings but kept their element ids, so this part of
+  // the sync is unchanged.
+  const mt = settings.metronome;
+  document.querySelectorAll('#metroSubSeg .seg-btn').forEach(b =>
+    b.classList.toggle('is-active', +b.dataset.sub === mt.subdivision));
+  $('metroSoundToggle').classList.toggle('active', mt.distinctSounds);
+  // The swing has to take exactly one beat, and that duration changes the
+  // moment BPM does — a CSS variable lets the keyframe pick it up without the
+  // animation needing to be JS-driven frame by frame.
+  $('metroPendulum').style.setProperty('--beat-ms', Math.round(60000 / mt.bpm) + 'ms');
   document.querySelectorAll('#tzGrid .clock-opt').forEach(o =>
     o.classList.toggle('active', o.dataset.tz === settings.clockTz));
   $('notifToggle').classList.toggle('active', settings.notifications);
@@ -1043,7 +1080,7 @@ function codeToDisplay(code) {
 
 function renderColors() {
   $('colorGrid').innerHTML = colors.map(c =>
-    '<div class="color-opt' + (c.n === settings.colorTheme ? ' active' : '') + '" data-color="' + c.n + '" style="background:' + c.h + '"></div>'
+    '<div class="color-opt' + (c.n === settings.colorTheme ? ' active' : '') + '" data-color="' + c.n + '" style="background:' + c.h + '" aria-label="' + c.n[0].toUpperCase() + c.n.slice(1) + '"></div>'
   ).join('');
 }
 
@@ -1093,6 +1130,53 @@ function bindEvents() {
     save(); apply();
   };
 
+  // Changing subdivision mid-measure would leave the pulse index referring to
+  // a beat that may no longer exist in the new measure shape, so this rewinds
+  // to beat one and, if it's playing, restarts the scheduler cleanly on the
+  // new shape rather than limping the old index into it.
+  $('metroSubSeg').onclick = e => {
+    const s = e.target.closest('.seg-btn');
+    if (!s) return;
+    settings.metronome.subdivision = +s.dataset.sub;
+    metroPulseIndex = 0;
+    metroMainBeatCount = 0;
+    save();
+    apply();
+    if (metroRunning) startMetro();
+  };
+
+  $('metroSoundToggle').onclick = () => {
+    settings.metronome.distinctSounds = !settings.metronome.distinctSounds;
+    save(); apply();
+  };
+
+  // Presets: same three-way click contract as Timer's — a remove ×, an Add
+  // button, or the preset itself — because it's the same idea one rail slot
+  // over: a named, saved configuration rather than a single number.
+  $('metroPresets').onclick = e => {
+    const x = e.target.closest('.preset-x');
+    if (x) { e.stopPropagation(); return dropMetroPreset(+x.dataset.drop); }
+    const add = e.target.closest('.preset-btn.add');
+    if (add) {
+      const name = prompt('Preset name (e.g. "Practice tempo"):');
+      if (!name || !name.trim()) return;
+      const bpmStr = prompt('BPM (30\u2013300):', String(settings.metronome.bpm));
+      if (!bpmStr) return;
+      const bpm = Math.round(clampNum(parseFloat(bpmStr) || 120, 30, 300));
+      const sigStr = prompt('Time signature (e.g. 4/4):',
+        settings.metronome.num + '/' + settings.metronome.den);
+      if (!sigStr) return;
+      const parts = sigStr.split('/');
+      const num = Math.round(clampNum(parseInt(parts[0], 10) || 4, 1, 16));
+      const den = [2, 4, 8, 16].includes(+parts[1]) ? +parts[1] : 4;
+      addMetroPreset(name, bpm, num, den);
+      return;
+    }
+    const b = e.target.closest('.metro-mark');
+    if (!b) return;
+    applyMetroPreset(+b.dataset.idx);
+  };
+
   document.querySelectorAll('.sel-head').forEach(h => {
     h.onclick = () => {
       const open = h.parentElement.classList.toggle('open');
@@ -1105,7 +1189,7 @@ function bindEvents() {
   // Main controls
   $('playBtn').onclick = togglePlay;
   $('resetBtn').onclick = reset;
-  $('lapBtn').onclick = recordLap;
+  $('lapBtn').onclick = lapOrTap;
   $('timeDisplay').ondblclick = editTime;
   $('pomoRound').onclick = editPomoRound;
   $('pomoTotal').onclick = editPomoFocus;
@@ -1134,6 +1218,7 @@ function bindEvents() {
   
   // Panels
   $('settingsBtn').onclick = () => {
+    closeAllPanels();
     $('settingsPanel').classList.add('active');
     $('settingsOverlay').classList.add('active');
     openModal($('settingsPanel'), $('closeSettings'));
@@ -1453,6 +1538,12 @@ function bindEvents() {
         if (data.analytics) Object.assign(analytics, data.analytics);
         if (Array.isArray(data.history)) history = data.history;
         if (data.title) localStorage.setItem('chronos_title', data.title);
+        // The imported file is arbitrary JSON from wherever it came from —
+        // Object.assign just merged it straight into the live settings with
+        // no shape checking. This is the one field in that merge malformed
+        // enough to throw on render rather than just look wrong, so it gets
+        // the same guard load() runs on startup.
+        sanitiseMetroPresets();
         save();
         apply();
         renderColors();
@@ -1547,7 +1638,7 @@ function bindEvents() {
     if (e.key === '?') { e.preventDefault(); toggleKeys(); }
     else if (MODE_KEYS[e.code]) { if (settings.modes[MODE_KEYS[e.code]]) switchMode(MODE_KEYS[e.code]); }
     else if (e.code === settings.keys.toggle) { e.preventDefault(); togglePlay(); }
-    else if (e.code === settings.keys.lap) recordLap();
+    else if (e.code === settings.keys.lap) lapOrTap();
     else if (e.code === settings.keys.reset) reset();
     else if (e.code === settings.keys.fullscreen) toggleFS();
     else if (e.code === settings.keys.settings) $('settingsBtn').click();
@@ -1712,7 +1803,14 @@ function switchMode(m) {
   // below would pause a run the user only meant to click on.
   if (m === mode) return;
   
-  if (mode !== 'clock') {
+  // Metronome never participates in the shared stash/pause cycle below — that
+  // system exists to let Stopwatch/Timer/Pomodoro hand `running`/`elapsed`
+  // back and forth as the one active thing. Running it for metronome too would
+  // mean its stashed slot fills with some OTHER mode's leftover `running`
+  // value, and a coincidence in that leftover value could pause the click
+  // exactly when bgRun is supposed to guarantee it keeps going. It has its own
+  // start/pause already; nothing here needs to touch it.
+  if (mode !== 'clock' && mode !== 'metronome') {
     if (running && !settings.bgRun) pause();
     stashRun(mode);
   }
@@ -1731,11 +1829,12 @@ function switchMode(m) {
   $('presets').classList.toggle('hidden', m !== 'timer');
   $('pomoInfo').classList.toggle('show', m === 'pomodoro');
   $('pomoActions').classList.toggle('show', m === 'pomodoro');
+  $('metroPresets').classList.toggle('hidden', m !== 'metronome');
   lastClockLabel = '';   // force the label back to a mode name / a fresh date
   
   const r = $('ringProgress');
   r.classList.remove('countdown', 'pomo-work', 'pomo-break');
-  $('dial').classList.remove('countdown-mode', 'pomo-work', 'pomo-break');
+  $('dial').classList.remove('countdown-mode', 'pomo-work', 'pomo-break', 'metro-mode');
   
   if (m === 'timer') {
     r.classList.add('countdown');
@@ -1747,10 +1846,27 @@ function switchMode(m) {
     $('dial').classList.add(brk ? 'pomo-break' : 'pomo-work');
     updatePomo();
   }
+  // The ring's progress arc reads as "0 to 100% of a duration" — a concept
+  // metronome doesn't have. Its own progress signal is the tick lamps
+  // (paintMetroLamps), so the arc and its head are hidden rather than left
+  // showing a number that means nothing here.
+  if (m === 'metronome') $('dial').classList.add('metro-mode');
   
-  $('timeLabel').textContent = m === 'pomodoro'
+  if (m === 'metronome') updateMetroLabel();
+  else $('timeLabel').textContent = m === 'pomodoro'
     ? (pomoPhase === 'work' ? 'Focus Time' : 'Break')
     : { stopwatch: 'Stopwatch', timer: 'Timer', clock: 'Clock' }[m];
+
+  // Lap becomes Tap in metronome mode (see lapOrTap). paintIcons() only ever
+  // runs once at boot, painting from each element's static data-ico — this is
+  // the one button whose icon has to change after that, so it gets repainted
+  // by hand rather than needing a second general-purpose icon system.
+  const lb = $('lapBtn');
+  lb.dataset.ico = m === 'metronome' ? 'tap' : 'flag';
+  lb.innerHTML = icon(lb.dataset.ico, 20);
+  lb.title = m === 'metronome' ? 'Tap Tempo' : 'Lap';
+  lb.setAttribute('aria-label', m === 'metronome' ? 'Tap tempo' : 'Record lap');
+
   syncPlayBtn();
   say($('timeLabel').textContent + ' mode');
   moveTab();
@@ -1832,11 +1948,17 @@ function loadRun(m) {
 }
 
 function syncPlayBtn() {
-  $('playBtn').innerHTML = icon(running ? 'pause' : 'play', 26);
-  $('playBtn').title = running ? 'Pause' : 'Start';
+  // The button reflects whichever "is this going" flag applies to the mode
+  // actually on screen. For every other mode that's the shared `running`;
+  // metronome keeps its own, precisely so a click that started on this tab
+  // doesn't get silently reinterpreted as some other mode's state the moment
+  // you switch away and back.
+  const on = mode === 'metronome' ? metroRunning : running;
+  $('playBtn').innerHTML = icon(on ? 'pause' : 'play', 26);
+  $('playBtn').title = on ? 'Pause' : 'Start';
   // The icon is drawn from a path with no text; title alone is a tooltip, not
   // an accessible name on every platform.
-  $('playBtn').setAttribute('aria-label', running ? 'Pause' : 'Start');
+  $('playBtn').setAttribute('aria-label', on ? 'Pause' : 'Start');
 }
 
 // ========== CLOCK MODE ==========
@@ -1892,15 +2014,235 @@ function paintClockLabel() {
   $('timeLabel').textContent = label;
 }
 
+// ========== METRONOME ==========
+// A metronome can't ride tick()'s 16ms setInterval the way the stopwatch's
+// digits do — a few ms of jitter is invisible on a counting number and very
+// audible as an uneven click. Ticks are booked directly on the Web Audio
+// clock instead: a lightweight loop wakes periodically, looks a short window
+// ahead, and hands the audio graph oscillator.start(exactTime) for anything
+// due — so playback stays sample-accurate even when the JS timer driving the
+// loop itself runs late, which is exactly what a backgrounded tab does to it.
+let metroTimer = null;
+let metroNextPulseTime = 0;     // AudioContext.currentTime of the next unbooked pulse
+let metroPulseIndex = 0;        // pulse within the measure that will be
+let metroMainBeatCount = 0;     // increments on beats only, not subdivisions — drives the pendulum side
+let tapTimes = [];
+
+// The metronome is deliberately NOT wired through the shared running/elapsed/
+// runState machinery the other three modes share. That system exists because
+// Stopwatch/Timer/Pomodoro are mutually exclusive — switching modes stashes
+// one's state and loads another's, and only one is ever "the" running thing.
+// A metronome is the opposite: the whole point of "click along in the
+// background" is that it keeps going while some OTHER mode is what's on
+// screen and running. Piggybacking on `running` would mean switchMode()'s
+// stash/load cycle silently reassigns `running` to whatever mode you switched
+// TO, and the metronome would keep ticking with nothing left tracking that it
+// was ever on — the play button on every other tab would control the wrong
+// thing. So it gets its own flag and its own lightweight duration tracker,
+// untouched by switchMode() entirely; it starts and stops only from its own
+// controls, on its own tab, exactly like a real metronome sitting on a stand
+// keeps going regardless of which page of the sheet music you're looking at.
+let metroRunning = false;
+let metroStartTime = 0;   // Date.now() when this practice segment began
+let metroElapsed = 0;     // accumulated ms, settled onto pause — mirrors elapsed's own bookkeeping
+
+function metroPulsesPerMeasure() {
+  return settings.metronome.num * settings.metronome.subdivision;
+}
+
+// 'accent' (beat 1 of the measure), 'beat' (any other main beat), or 'sub' (an
+// in-between subdivision click). This is the whole reason compound meters
+// need no special-casing: a 6/8 bar at subdivision-off is just six 'beat'
+// pulses with pulse 0 accented, arrived at the same way 4/4 is.
+function metroPulseTier(i) {
+  if (i === 0) return 'accent';
+  return i % settings.metronome.subdivision === 0 ? 'beat' : 'sub';
+}
+
+// bpm is always beats-of-the-denominator per minute — the one convention that
+// needs no separate "dotted quarter = X" case for compound meters.
+function metroSecondsPerPulse() {
+  return 60 / settings.metronome.bpm / settings.metronome.subdivision;
+}
+
+function metroClick(tier, when) {
+  const ctx = actx();
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  const distinct = settings.metronome.distinctSounds;
+  const freq = !distinct ? 1000 : tier === 'accent' ? 1600 : tier === 'beat' ? 1000 : 700;
+  const peak = (!distinct ? 0.5 : tier === 'accent' ? 0.7 : tier === 'beat' ? 0.5 : 0.26) * settings.volume;
+  o.type = 'sine';
+  o.frequency.setValueAtTime(freq, when);
+  // A short, percussive envelope: long enough to read as a click, short
+  // enough not to smear into the next pulse at a fast tempo. Ramping from a
+  // near-zero floor rather than 0 avoids the log(0) exponential-ramp error.
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0001), when + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
+  o.start(when);
+  o.stop(when + 0.06);
+}
+
+// Background tabs commonly throttle timers to roughly once a second. A 120ms
+// lookahead is plenty for a smooth foreground feel but would starve mid-beat
+// under that throttling, so the window widens whenever the tab is hidden.
+function metroScheduleAhead() {
+  return document.hidden ? 1.2 : 0.12;
+}
+
+function metroSchedulerTick() {
+  const ctx = actx();
+  const ahead = metroScheduleAhead();
+  while (metroNextPulseTime < ctx.currentTime + ahead) {
+    const tier = metroPulseTier(metroPulseIndex);
+    metroClick(tier, metroNextPulseTime);
+    metroScheduleVisual(tier, metroPulseIndex, metroNextPulseTime);
+    metroNextPulseTime += metroSecondsPerPulse();
+    metroPulseIndex = (metroPulseIndex + 1) % metroPulsesPerMeasure();
+  }
+}
+
+// Tied to the same schedule as the audio rather than derived from polling
+// elapsed time, so the pendulum and lamps can't drift from what's actually
+// playing even though this is only a setTimeout, not the audio clock itself.
+function metroScheduleVisual(tier, index, when) {
+  const ctx = actx();
+  const ms = Math.max(0, (when - ctx.currentTime) * 1000);
+  setTimeout(() => paintMetroBeat(tier, index), ms);
+}
+
+function paintMetroBeat(tier, index) {
+  if (mode !== 'metronome' || !metroRunning) return;
+  paintMetroLamps(index);
+  // The pendulum swings on main beats only and holds through subdivisions in
+  // between — the classic mechanical read, not a twitch on every sub-click.
+  if (tier === 'sub') return;
+  metroMainBeatCount++;
+  const p = $('metroPendulum');
+  if (p) p.classList.toggle('swing-right', metroMainBeatCount % 2 === 1);
+  $('dial').classList.toggle('metro-accent', tier === 'accent');
+  if (tier === 'accent') setTimeout(() => $('dial').classList.remove('metro-accent'), 90);
+}
+
+// Reuses the ring's existing tick marks as lamps (same trick Pace Clock's
+// signature uses) — here each lit lamp is a beat of the CURRENT measure that
+// has already passed, not a fraction of an hour, so the count is num, not 60.
+function paintMetroLamps(index) {
+  const ticks = $('ticks').children;
+  if (!ticks.length) return;
+  // A new measure starts: clear the board rather than light lamp zero, so the
+  // reset itself is visible instead of looking like nothing happened.
+  if (index === 0) { for (let i = 0; i < ticks.length; i++) ticks[i].classList.remove('metro-lit'); return; }
+  const beatIdx = Math.floor(index / settings.metronome.subdivision);
+  const per = Math.floor(60 / settings.metronome.num);
+  for (let i = 0; i < 60; i++) ticks[i].classList.toggle('metro-lit', Math.floor(i / per) <= beatIdx);
+}
+
+function startMetro() {
+  const ctx = actx();
+  metroNextPulseTime = ctx.currentTime + 0.05;
+  metroPulseIndex = 0;
+  metroMainBeatCount = 0;
+  clearInterval(metroTimer);
+  metroSchedulerTick();
+  metroTimer = setInterval(metroSchedulerTick, 25);
+}
+
+function stopMetro() {
+  clearInterval(metroTimer);
+  metroTimer = null;
+  $('dial').classList.remove('metro-accent');
+  const p = $('metroPendulum');
+  if (p) p.classList.remove('swing-right');
+  const ticks = $('ticks').children;
+  for (let i = 0; i < ticks.length; i++) ticks[i].classList.remove('metro-lit');
+}
+
+// Averages up to the last 8 taps; a gap over 2s reads as a fresh attempt at a
+// different tempo rather than a continuation of the old one.
+// Metronome's own session logger. Deliberately not logSession() — that reads
+// the shared `mode`/`elapsed`, and by design those don't represent metronome
+// practice time. Same history shape and same analytics bump as every other
+// mode gets, so the dashboard's streak/goal-ring/heatmap all pick it up for
+// free without needing to know metronome is a different kind of mode.
+function logMetroSession(durationMs) {
+  if (durationMs < 5000) return;   // a mis-tap or an accidental start isn't a session
+  const today = new Date().toDateString();
+  if (analytics.lastDate !== today) {
+    analytics.sessions = 0;
+    analytics.focus = 0;
+    if (analytics.lastDate) {
+      const diff = Math.floor((new Date(today) - new Date(analytics.lastDate)) / 86400000);
+      analytics.streak = diff === 1 ? analytics.streak + 1 : 1;
+    } else analytics.streak = 1;
+  }
+  analytics.sessions++;
+  analytics.lastDate = today;
+  analytics.focus += Math.round(durationMs / 1000);
+  const m = settings.metronome;
+  history.push({
+    type: 'metronome', duration: durationMs, laps: 0,
+    tag: m.num + '/' + m.den + ' \u00b7 ' + m.bpm + ' BPM',
+    date: new Date().toISOString()
+  });
+  save();
+  updateStats();
+  updateGoal();
+  renderMiniWeek();
+}
+
+function tapTempo() {
+  const now = performance.now();
+  if (tapTimes.length && now - tapTimes[tapTimes.length - 1] > 2000) tapTimes = [];
+  tapTimes.push(now);
+  if (tapTimes.length > 8) tapTimes.shift();
+  const btn = $('lapBtn');
+  btn.classList.remove('tap-flash'); void btn.offsetWidth; btn.classList.add('tap-flash');
+  if (tapTimes.length < 2) return;
+  const gaps = [];
+  for (let i = 1; i < tapTimes.length; i++) gaps.push(tapTimes[i] - tapTimes[i - 1]);
+  const avgMs = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  const bpm = Math.round(clampNum(60000 / avgMs, 30, 300));
+  settings.metronome.bpm = bpm;
+  save();
+  updateMetroLabel();
+  updateDisplay();
+  a11yDial();
+  say(bpm + ' B P M');
+  if (metroRunning) startMetro();  // re-sync scheduling to the new tempo immediately
+}
+
+function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function updateMetroLabel() {
+  if (mode !== 'metronome') return;
+  const m = settings.metronome;
+  const subName = { 1: '', 2: ' · Eighths', 3: ' · Triplets', 4: ' · Sixteenths' }[m.subdivision];
+  $('timeLabel').textContent = m.num + '/' + m.den + subName;
+}
+
 function togglePlay() {
   if (mode === 'clock') return;   // Space is still bound; there is nothing to start
   $('playBtn').classList.add('pulse');
   setTimeout(() => $('playBtn').classList.remove('pulse'), 300);
-  running ? pause() : start();
+  const isOn = mode === 'metronome' ? metroRunning : running;
+  isOn ? pause() : start();
 }
 
 function start() {
   if (mode === 'clock') return;
+  if (mode === 'metronome') {
+    if (metroRunning) return;
+    metroRunning = true;
+    metroStartTime = Date.now();
+    syncPlayBtn();
+    say('Started, ' + settings.metronome.bpm + ' B P M');
+    startMetro();
+    syncBodyState();
+    requestWake();
+    return;
+  }
   if (mode === 'timer' && timerRemaining <= 0) return;
   if (mode === 'pomodoro' && timerRemaining <= 0) {
     timerDuration = settings.pomo.work * 1000;
@@ -1917,6 +2259,19 @@ function start() {
 }
 
 function pause() {
+  if (mode === 'metronome') {
+    if (!metroRunning) return;
+    metroRunning = false;
+    metroElapsed += Date.now() - metroStartTime;
+    stopMetro();
+    syncPlayBtn();
+    say('Stopped');
+    syncBodyState();
+    releaseWake();
+    logMetroSession(metroElapsed);
+    metroElapsed = 0;   // each start/stop pair is its own logged segment
+    return;
+  }
   // Derive from the wall clock rather than trusting whatever tick() last wrote.
   // A throttled background tab can leave elapsed hundreds of ms behind, and
   // pausing on the stale value silently loses that time.
@@ -1932,6 +2287,17 @@ function pause() {
 
 function reset() {
   if (mode === 'clock') return;
+  if (mode === 'metronome') {
+    // Reset stops the click and rewinds to beat one — the same "back to the
+    // start" idea Stopwatch's reset carries — but it does not touch BPM or
+    // time signature. Those are settings the user dialled in, not a run in
+    // progress; zeroing them on Reset would be closer to a bug than a feature.
+    pause();
+    metroPulseIndex = 0;
+    metroMainBeatCount = 0;
+    say('Reset');
+    return;
+  }
   if (settings.confirm && (running || elapsed > 0) && !confirm('Reset?')) return;
   pause();
   if (mode === 'stopwatch' && elapsed >= 1000) logSession();
@@ -2067,6 +2433,14 @@ function updateDisplay() {
     // something you only glance at. Same reasoning that already keeps the
     // stopwatch's centiseconds still.
     rollTo = settings.clockSeconds ? str.lastIndexOf(':') + 1 : str.length;
+  } else if (mode === 'metronome') {
+    // A bare number reuses the exact same per-character render/diff/roll
+    // pipeline every other mode's time string goes through — tapping a new
+    // tempo makes the digits roll in the same way a lap makes them roll,
+    // rather than needing a second display system just for this one mode.
+    str = String(settings.metronome.bpm);
+    dot = str.length;
+    rollTo = str.length;
   } else {
     const ms = mode === 'stopwatch' ? elapsed : timerRemaining;
     str = ms >= 3600000 ? fmtH(ms) : fmt(ms);
@@ -2292,6 +2666,15 @@ function editPomoBreak() {
 }
 
 // ========== LAPS ==========
+// Lap and Tap are the same button and the same keyboard shortcut wearing two
+// hats — tapping a rhythm to set tempo is close enough in spirit to marking a
+// split that reusing the control felt right rather than inventing a fourth
+// transport button just for metronome mode.
+function lapOrTap() {
+  if (mode === 'metronome') tapTempo();
+  else recordLap();
+}
+
 function recordLap() {
   if (!running || mode !== 'stopwatch') return;
   const split = elapsed - lastLapTime;
@@ -2456,7 +2839,8 @@ function setupDial() {
   };
   
   const start = e => {
-    if (running || mode === 'clock' || !onRing(e)) return;
+    const isOn = mode === 'metronome' ? metroRunning : running;
+    if (isOn || mode === 'clock' || !onRing(e)) return;
     drag = true;
     dialDragging = true;
     document.body.classList.add('dragging');
@@ -2466,6 +2850,19 @@ function setupDial() {
     if (!drag) return;
     e.preventDefault();
     const a = angle(e);
+    if (mode === 'metronome') {
+      // Same ring, a different quantity: angle maps to BPM across the same
+      // clamped range tapTempo() and the sanitiser already use, so a drag can
+      // never produce a tempo those other paths would reject.
+      const bpm = Math.round(clampNum(30 + (a / 360) * (300 - 30), 30, 300));
+      settings.metronome.bpm = bpm;
+      save();
+      updateMetroLabel();
+      updateDisplay();
+      a11yDial();
+      if (metroRunning) startMetro();   // re-sync scheduling to the new tempo
+      return;
+    }
     const ms = Math.round(a / 360 * 3600000 / 1000) * 1000;
     if (mode === 'stopwatch') elapsed = ms;
     else { timerDuration = ms; timerRemaining = ms; }
@@ -2496,7 +2893,28 @@ function setupDial() {
   // Home/End go to the ends — the same contract as a native range input. Clock
   // mode is a readout, not a control, so it opts out along with a running one.
   d.addEventListener('keydown', e => {
-    if (running || mode === 'clock') return;
+    const isOn = mode === 'metronome' ? metroRunning : running;
+    if (isOn || mode === 'clock') return;
+    if (mode === 'metronome') {
+      const cur = settings.metronome.bpm;
+      const step = e.shiftKey ? 10 : 1;
+      let next = null;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = cur + step;
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - step;
+      else if (e.key === 'PageUp') next = cur + 10;
+      else if (e.key === 'PageDown') next = cur - 10;
+      else if (e.key === 'Home') next = 30;
+      else if (e.key === 'End') next = 300;
+      if (next === null) return;
+      e.preventDefault();
+      settings.metronome.bpm = Math.round(clampNum(next, 30, 300));
+      save();
+      updateMetroLabel();
+      updateDisplay();
+      a11yDial();
+      say(settings.metronome.bpm + ' B P M');
+      return;
+    }
     const cur = mode === 'stopwatch' ? elapsed : timerDuration;
     const step = e.shiftKey ? 60000 : 1000;
     let next = null;
@@ -2679,6 +3097,7 @@ function focusByDay() {
 }
 
 function openDash() {
+  closeAllPanels();
   renderDash();
   $('dashboard').classList.add('active');
   $('dashScrim').classList.add('active');
@@ -2842,6 +3261,79 @@ function dropPreset(secs) {
   settings.presets = settings.presets.filter(x => x !== secs);
   save();
   renderPresets();
+}
+
+// Same pattern as Timer's presets, one rail slot over: a name plus a full
+// little configuration (tempo and time signature) rather than just a number,
+// since "preset metronome" is the more useful unit here than "preset BPM"
+// alone — picking one sets both at once.
+// Objects have more ways to arrive malformed than Timer's plain-number
+// presets do — a stale saved format, a hand-edited localStorage value, or
+// (the one that actually matters here) an imported backup file, which is
+// arbitrary untrusted JSON someone dragged in from wherever it came from.
+// A bad entry would throw inside renderMetroPresets, so this runs both at
+// load() and right after a settings import — anywhere data.settings can be
+// merged into the live settings object without having passed through load().
+function sanitiseMetroPresets() {
+  if (!Array.isArray(settings.metronomePresets)) settings.metronomePresets = [];
+  settings.metronomePresets = settings.metronomePresets
+    .filter(p => p && typeof p.name === 'string' && p.name.trim() &&
+      Number.isFinite(p.bpm) && Number.isFinite(p.num) && Number.isFinite(p.den))
+    .map(p => ({
+      name: p.name.trim().slice(0, 24),
+      bpm: Math.round(clampNum(p.bpm, 30, 300)),
+      num: Math.round(clampNum(p.num, 1, 16)),
+      den: [2, 4, 8, 16].includes(p.den) ? p.den : 4
+    }))
+    .slice(0, 16);
+  if (!settings.metronomePresets.length) {
+    settings.metronomePresets = [
+      { name: 'Largo', bpm: 50, num: 4, den: 4 },
+      { name: 'Adagio', bpm: 72, num: 4, den: 4 },
+      { name: 'Andante', bpm: 92, num: 4, den: 4 },
+      { name: 'Moderato', bpm: 114, num: 4, den: 4 },
+      { name: 'Allegro', bpm: 144, num: 4, den: 4 },
+      { name: 'Presto', bpm: 184, num: 4, den: 4 }
+    ];
+  }
+}
+
+function renderMetroPresets() {
+  $('metroPresets').innerHTML = settings.metronomePresets.map((p, i) =>
+    '<button class="preset-btn metro-mark" data-idx="' + i + '">' +
+    p.name + ' \u00b7 ' + p.bpm + ' \u00b7 ' + p.num + '/' + p.den +
+    '<i class="preset-x" data-drop="' + i + '" title="Remove">\u00d7</i></button>'
+  ).join('') +
+  '<button class="preset-btn add">+ Add</button>';
+}
+
+function applyMetroPreset(i) {
+  const p = settings.metronomePresets[i];
+  if (!p) return;
+  settings.metronome.bpm = p.bpm;
+  settings.metronome.num = p.num;
+  settings.metronome.den = p.den;
+  metroPulseIndex = 0;
+  metroMainBeatCount = 0;
+  save();
+  updateMetroLabel();
+  updateDisplay();
+  a11yDial();
+  say(p.name + ', ' + p.bpm + ' B P M');
+  if (metroRunning) startMetro();
+}
+
+function addMetroPreset(name, bpm, num, den) {
+  settings.metronomePresets = [...settings.metronomePresets,
+    { name: name.trim().slice(0, 24), bpm, num, den }].slice(0, 16);
+  save();
+  renderMetroPresets();
+}
+
+function dropMetroPreset(i) {
+  settings.metronomePresets = settings.metronomePresets.filter((_, idx) => idx !== i);
+  save();
+  renderMetroPresets();
 }
 
 // ========== POMODORO PIPS ==========
@@ -3116,7 +3608,7 @@ function toggleVoice() {
     $('voiceText').textContent = transcript;
     if (transcript.includes('start') || transcript.includes('go')) start();
     else if (transcript.includes('stop') || transcript.includes('pause')) pause();
-    else if (transcript.includes('lap')) recordLap();
+    else if (transcript.includes('lap') || transcript.includes('tap')) lapOrTap();
     else if (transcript.includes('reset')) reset();
   };
   
@@ -3211,11 +3703,16 @@ function syncBodyState() {
   const b = document.body;
   b.classList.toggle('theme-swap', themeSwapping);
   b.classList.toggle('ready', booted);
-  b.classList.toggle('running', running);
+  // Metronome tracks its own play-state (see the note by metroRunning), so
+  // body.running — which a fair amount of chrome CSS keys off (the bloom glow,
+  // the drag-hint fading out, and so on) — follows whichever one actually
+  // applies to the mode currently on screen.
+  b.classList.toggle('running', mode === 'metronome' ? metroRunning : running);
   b.classList.toggle('mode-stopwatch', mode === 'stopwatch');
   b.classList.toggle('mode-timer', mode === 'timer');
   b.classList.toggle('mode-pomodoro', mode === 'pomodoro');
   b.classList.toggle('mode-clock', mode === 'clock');
+  b.classList.toggle('mode-metronome', mode === 'metronome');
   b.classList.toggle('phase-break', mode === 'pomodoro' && pomoPhase !== 'work');
 }
 
@@ -3360,6 +3857,8 @@ function buildKeysList() {
 }
 
 function toggleKeys() {
+  const willOpen = !$('keysOverlay').classList.contains('active');
+  if (willOpen) closeAllPanels();
   buildKeysList();
   const on = $('keysOverlay').classList.toggle('active');
   if (on) openModal($('keysOverlay')); else closeModal();
@@ -3399,7 +3898,7 @@ function buildPalette() {
   // The stopwatch glyph (crown button on top) goes to Stopwatch and the wall
   // clock to Clock — they were the other way round, which only became wrong
   // once there was a fourth mode that actually is a wall clock.
-  const MODE_ICONS = { stopwatch: 'timer', timer: 'hourglass', pomodoro: 'tomato', clock: 'clock' };
+  const MODE_ICONS = { stopwatch: 'timer', timer: 'hourglass', pomodoro: 'tomato', clock: 'clock', metronome: 'tap' };
   MODES.forEach(m => COMMANDS.push(cmd(MODE_ICONS[m], m[0].toUpperCase() + m.slice(1) + ' mode', 'Mode', () => {
     if (!settings.modes[m]) { settings.modes[m] = true; save(); apply(); }
     switchMode(m);
@@ -3547,6 +4046,25 @@ function a11yInit() {
     if (name) t.setAttribute('aria-label', desc ? name + '. ' + desc : name);
   });
 
+  // .theme-opt tiles carry their name in a nested .name div next to a bare
+  // decorative emoji icon — readable on screen, but not a reliable accessible
+  // name once role="radio" is applied to a div. Same fix as the toggles: copy
+  // the visible label in as aria-label so it can't drift from what's shown.
+  document.querySelectorAll('.theme-opt').forEach(t => {
+    if (t.hasAttribute('aria-label')) return;
+    const lab = t.querySelector('.name');
+    if (lab) t.setAttribute('aria-label', lab.textContent.trim());
+  });
+
+  // <input type="color"> swatches (custom accent, custom palette) sit in a
+  // .setting-row next to their label same as a .toggle does, but a native
+  // input isn't in A11Y_ROLES — it already has an implicit role and needs
+  // only the name.
+  document.querySelectorAll('.setting-row input[type="color"]').forEach(inp => {
+    const [name] = rowLabel(inp);
+    if (name && !inp.hasAttribute('aria-label')) inp.setAttribute('aria-label', name);
+  });
+
   A11Y_GROUPS.forEach(([id, role, label]) => {
     const g = $(id);
     if (!g) return;
@@ -3659,7 +4177,14 @@ function a11ySync() {
   $('fullscreenBtn').setAttribute('aria-pressed', settings.fullscreen ? 'true' : 'false');
   $('settingsBtn').setAttribute('aria-expanded', $('settingsPanel').classList.contains('active') ? 'true' : 'false');
   $('historyBtn').setAttribute('aria-expanded', $('dashboard').classList.contains('active') ? 'true' : 'false');
-  $('playBtn').setAttribute('aria-label', running ? 'Pause' : 'Start');
+  // Same "which flag actually applies" logic as syncPlayBtn — duplicated here
+  // rather than shared because this one line is the only overlap between the
+  // two functions. Kept in sync deliberately: this used to just read the
+  // shared `running`, which meant a11ySync() running after syncPlayBtn() in
+  // switchMode()'s sequence would silently stomp the correct label back to
+  // whatever the shared flag happened to hold — exactly the class of bug the
+  // metronome's independent state was introduced to stop causing.
+  $('playBtn').setAttribute('aria-label', (mode === 'metronome' ? metroRunning : running) ? 'Pause' : 'Start');
 
   a11yDial();
 }
@@ -3676,6 +4201,17 @@ function a11yDial() {
     d.removeAttribute('aria-valuetext');
     d.setAttribute('aria-label', 'Clock face showing ' + ($('timeDisplay').textContent || 'the current time'));
     d.tabIndex = -1;
+    return;
+  }
+  if (mode === 'metronome') {
+    d.setAttribute('role', 'slider');
+    d.tabIndex = 0;
+    d.setAttribute('aria-label', 'Tempo. Drag the ring, or use the arrow keys, to set the beats per minute.');
+    d.setAttribute('aria-valuemin', '30');
+    d.setAttribute('aria-valuemax', '300');
+    d.setAttribute('aria-valuenow', settings.metronome.bpm);
+    d.setAttribute('aria-valuetext', settings.metronome.bpm + ' beats per minute');
+    d.setAttribute('aria-readonly', metroRunning ? 'true' : 'false');
     return;
   }
   d.setAttribute('role', 'slider');
@@ -3751,6 +4287,20 @@ function closeModal() {
   document.body.classList.remove('modal-open');
   if (focusReturn && document.contains(focusReturn)) focusReturn.focus();
   focusReturn = null;
+}
+
+// trapFocus and openModal both assume exactly one panel is active at a time
+// (trapFocus picks its root with a single querySelector; openModal's one
+// focusReturn slot gets clobbered by whichever panel opened second). Settings,
+// Dashboard and the keyboard-shortcuts overlay are reachable independently
+// enough — the command palette can launch any of them over the top of another
+// — that nothing enforced that. Each opener calls this first.
+function closeAllPanels() {
+  $('settingsPanel').classList.remove('active');
+  $('settingsOverlay').classList.remove('active');
+  $('dashboard').classList.remove('active');
+  $('dashScrim').classList.remove('active');
+  $('keysOverlay').classList.remove('active');
 }
 
 // ========== SERVICE WORKER ==========

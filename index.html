@@ -34,7 +34,7 @@
        carry the fallbacks for the visit before that. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@100;200;300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Azeret+Mono:wght@400;500;700;800&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@500;600;700;800&family=Doto:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@100;200;300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Azeret+Mono:wght@400;500;700;800&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@500;600;700;800&family=Doto:wght@500;700;900&family=Share+Tech+Mono&family=Jost:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=Oswald:wght@400;500&family=Libre+Franklin:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="chronos.css">
 </head>
 <body class="theme-indigo">
@@ -121,6 +121,7 @@
       <button class="mode-tab" role="tab" id="tabTimer" aria-selected="false" aria-controls="dial" data-mode="timer">⏲ Timer</button>
       <button class="mode-tab" role="tab" id="tabPomodoro" aria-selected="false" aria-controls="dial" data-mode="pomodoro">🍅 Pomodoro</button>
       <button class="mode-tab hidden" role="tab" id="tabClock" aria-selected="false" aria-controls="dial" data-mode="clock">🕐 Clock</button>
+      <button class="mode-tab hidden" role="tab" id="tabMetronome" aria-selected="false" aria-controls="dial" data-mode="metronome">🎵 Metronome</button>
     </div>
     
     <div class="dial-wrap" data-reveal style="--d:3">
@@ -128,6 +129,9 @@
            aria-label="Duration. Drag the ring, or use the arrow keys, to set the time."
            aria-valuemin="0" aria-valuemax="3600" aria-valuenow="0" aria-valuetext="Zero seconds">
         <div id="bloom" aria-hidden="true"></div>
+        <div class="metro-pendulum" id="metroPendulum" aria-hidden="true">
+          <span class="metro-pendulum-arm"><span class="metro-pendulum-bob"></span></span>
+        </div>
         <svg class="ring-svg" viewBox="0 0 280 280" aria-hidden="true" focusable="false">
           <defs>
             <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
@@ -172,7 +176,7 @@
         <div class="pomo-stat-label" id="pomoBreakLabel">Break</div>
       </div>
     </div>
-    
+
     <div class="controls" role="group" aria-label="Timer controls">
       <button class="ctrl-btn" id="lapBtn" title="Lap" aria-label="Record lap" data-ico="flag"></button>
       <button class="ctrl-btn primary" id="playBtn" title="Start" aria-label="Start" data-ico="play"></button>
@@ -183,8 +187,9 @@
   
   <aside class="rail rail-r" aria-label="Laps and presets" data-reveal style="--d:6">
     <div class="presets hidden" id="presets"></div>
+    <div class="metro-presets hidden" id="metroPresets" role="group" aria-label="Metronome presets"></div>
     
-    <div class="laps-container hidden" id="lapsContainer">
+    <div class="laps-container" id="lapsContainer">
       <div class="laps-header">
         <span class="laps-title">Laps</span>
         <div class="laps-actions">
@@ -282,6 +287,9 @@
           <div class="theme-opt" data-theme="bahnhof"><div class="icon">🚉</div><div class="name">Bahnhof</div></div>
           <div class="theme-opt" data-theme="safelight"><div class="icon">🔴</div><div class="name">Safelight</div></div>
           <div class="theme-opt" data-theme="paceclock"><div class="icon">🎛️</div><div class="name">Pace Clock</div></div>
+          <div class="theme-opt" data-theme="gnomon"><div class="icon">🌒</div><div class="name">Gnomon</div></div>
+          <div class="theme-opt" data-theme="vane"><div class="icon">🪧</div><div class="name">Vane</div></div>
+          <div class="theme-opt" data-theme="kymograph"><div class="icon">📈</div><div class="name">Kymograph</div></div>
         </div>
           </div></div>
         </div>
@@ -385,6 +393,10 @@
           <div class="toggle" id="modeClockToggle"></div>
         </div>
         <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="tap"></i><span class="setting-label">Metronome</span>
+          <div class="toggle active" id="modeMetronomeToggle"></div>
+        </div>
+        <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Keep Modes Running<i class="row-sub">Leaving a mode lets its clock carry on. Off: it pauses and picks up where you left it.</i></span>
           <div class="toggle active" id="bgRunToggle"></div>
         </div>
@@ -418,6 +430,24 @@
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Auto-start breaks</span>
           <div class="toggle active" id="autoBreakToggle"></div>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="tap"></i>Metronome</h3>
+        <p class="sub-note">Tempo and time signature live on the dial and its presets. These two apply underneath whichever one is playing.</p>
+        <div class="setting-row">
+          <span class="setting-label">Subdivision<i class="row-sub">Extra clicks between each beat</i></span>
+          <div class="seg" id="metroSubSeg" role="group" aria-label="Subdivision">
+            <button class="seg-btn is-active" data-sub="1">None</button>
+            <button class="seg-btn" data-sub="2">2</button>
+            <button class="seg-btn" data-sub="3">3</button>
+            <button class="seg-btn" data-sub="4">4</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="volume"></i><span class="setting-label">Distinct beat sounds<i class="row-sub">Accent beat one, and give subdivisions their own softer tick</i></span>
+          <div class="toggle active" id="metroSoundToggle"></div>
         </div>
       </div>
 
