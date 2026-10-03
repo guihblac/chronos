@@ -1,7 +1,7 @@
 // ========== GLOBALS ==========
 // Bump on every delivery. Shown in the background diagnostic so we can tell at a
 // glance whether the browser is running this file or a cached older one.
-const BUILD = 'B39 centring reverted';
+const BUILD = 'B40 polish pass';
 const $ = id => document.getElementById(id);
 const CIRC = 2 * Math.PI * 126;
 
@@ -136,7 +136,8 @@ const ICONS = {
   notifications: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/><circle cx="18" cy="5.5" r="2.6" fill="currentColor" stroke="none"/>',
   resize: '<path d="M4 10V5.5A1.5 1.5 0 0 1 5.5 4H10"/><path d="M20 14v4.5a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M9.5 14.5l-5 5"/><path d="M14.5 9.5l5-5"/>',
   bookmark: '<path d="M6.5 3.5h11a1 1 0 0 1 1 1V21l-6.5-4-6.5 4V4.5a1 1 0 0 1 1-1z"/>',
-  download: '<path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 20h14"/>'
+  download: '<path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 20h14"/>',
+  haze: '<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="12" r="5.2" stroke-dasharray="1.4 2.2"/>'
 };
 
 function icon(name, size) {
@@ -800,6 +801,7 @@ function init() {
   apply();
   bindEvents();
   updateDisplay();
+  syncPlayBtn();     // sets Lap's starting enabled state, not just play/pause
   updateWorldClocks();
   updateStats();
   setInterval(updateWorldClocks, 1000);
@@ -2689,6 +2691,10 @@ function syncPlayBtn() {
   // The icon is drawn from a path with no text; title alone is a tooltip, not
   // an accessible name on every platform.
   $('playBtn').setAttribute('aria-label', on ? 'Pause' : 'Start');
+  // Lap only does anything on a running stopwatch (recordLap() bails
+  // otherwise), and Tap always works. Everywhere else the button stays in its
+  // slot, so the controls don't shift between modes, but reads as unavailable.
+  $('lapBtn').disabled = mode !== 'metronome' && !(mode === 'stopwatch' && running);
 }
 
 // ========== CLOCK MODE ==========
@@ -4069,7 +4075,7 @@ function clockProgress() {
 function updatePomo() {
   renderPips();
   $('pomoRound').textContent = pomoRound + '/' + settings.pomo.rounds;
-  $('pomoTotal').textContent = formatFocus(pomoTotalFocus);
+  $('pomoTotal').textContent = formatMMSS(Math.floor(pomoTotalFocus));
   const isLong = settings.longBreaks && (pomoPhase === 'long' || (pomoPhase !== 'short' && pomoRound >= settings.pomo.rounds));
   $('pomoBreak').textContent = formatMMSS(isLong ? settings.pomo.long : settings.pomo.short);
   $('pomoBreakLabel').textContent = isLong ? 'Long Break' : 'Break';
@@ -4727,10 +4733,12 @@ function renderTagBars() {
   ).join('');
 }
 
-// Total focus seconds per day across all history, keyed by toDateString()
-function focusByDay() {
+// Total focus seconds per day, keyed by toDateString(). Defaults to the
+// active range; the heatmap passes the whole history, since it's a calendar
+// with its own fixed window and a range would just blank most of it.
+function focusByDay(list = rangeHistory()) {
   const m = {};
-  rangeHistory().forEach(h => {
+  list.forEach(h => {
     const k = dayKey(h.date);
     m[k] = (m[k] || 0) + Math.round((h.duration || 0) / 1000);
   });
@@ -4746,6 +4754,13 @@ function openDash() {
   a11ySync();
 }
 
+// The heatmap sizes itself to the card, so it re-fits when the window does.
+let heatFit = 0;
+addEventListener('resize', () => {
+  if (heatFit || !$('dashboard').classList.contains('active') || !history.length) return;
+  heatFit = requestAnimationFrame(() => { heatFit = 0; renderHeat(); });
+});
+
 function closeDash() {
   $('dashboard').classList.remove('active');
   $('dashScrim').classList.remove('active');
@@ -4754,6 +4769,9 @@ function closeDash() {
 }
 
 function renderDash() {
+  // With nothing recorded, one line saying what will appear here reads better
+  // than a page of zeroes and flat bars. The CSS hides the rest of the body.
+  $('dashboard').classList.toggle('is-empty', !history.length);
   renderKpis();
   renderTagBars();
   renderWeek();
@@ -4780,35 +4798,73 @@ function renderKpis() {
     k(formatFocus(avg), 'Daily Average');
 }
 
+// The bar chart follows the range chips: a bar a day for 7 or 30 days, and a
+// bar a month for all time, where daily bars would be too thin to read.
 function renderWeek() {
-  const byDay = focusByDay();
   const today = new Date();
   const cols = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    cols.push({ d, secs: byDay[d.toDateString()] || 0 });
+  let title;
+  if (dashRange) {
+    const byDay = focusByDay();
+    for (let i = dashRange - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      // A 30-day row can't fit thirty labels, so every fifth day carries one,
+      // counted back from today so today's own bar is always labelled.
+      const lbl = dashRange <= 7 ? d.toLocaleDateString([], { weekday: 'short' })
+        : i % 5 === 0 ? String(d.getDate()) : '';
+      cols.push({ lbl, tip: d.toLocaleDateString(), secs: byDay[d.toDateString()] || 0 });
+    }
+    title = 'Last ' + dashRange + ' Days';
+  } else {
+    const byMonth = {};
+    history.forEach(h => {
+      const d = new Date(h.date);
+      const k = d.getFullYear() + '-' + d.getMonth();
+      byMonth[k] = (byMonth[k] || 0) + Math.round((h.duration || 0) / 1000);
+    });
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      cols.push({
+        lbl: d.toLocaleDateString([], { month: 'short' }),
+        tip: d.toLocaleDateString([], { month: 'long', year: 'numeric' }),
+        secs: byMonth[d.getFullYear() + '-' + d.getMonth()] || 0
+      });
+    }
+    title = 'Last 12 Months';
   }
   const max = Math.max(1, ...cols.map(c => c.secs));
-  
+
+  $('weekTitle').textContent = title;
+  $('weekChart').classList.toggle('dense', cols.length > 12);
   $('weekChart').innerHTML = cols.map((c, i) => {
     const pct = Math.round(c.secs / max * 100);
-    const lbl = c.d.toLocaleDateString([], { weekday: 'short' });
-    return '<div class="wc-col' + (i === 6 ? ' today' : '') + '">' +
+    return '<div class="wc-col' + (i === cols.length - 1 ? ' today' : '') + '" title="' + c.tip + ' — ' + formatFocus(c.secs) + '">' +
       '<div class="wc-bar" data-v="' + formatFocus(c.secs) + '" style="height:' + Math.max(pct, 2) + '%"></div>' +
-      '<div class="wc-lbl">' + lbl + '</div></div>';
+      '<div class="wc-lbl">' + (c.lbl || ' ') + '</div></div>';
   }).join('');
 }
 
+// Square cells, as many weeks as the card has room for: about a year on a
+// desktop-sized dashboard, never fewer than twelve weeks on a phone (the row
+// scrolls sideways there instead of squashing).
+const HEAT_CELL = 12, HEAT_GAP = 3;
+
 function renderHeat() {
-  const byDay = focusByDay();
-  const WEEKS = 12;
+  const byDay = focusByDay(history);
+  const room = $('heatmap').parentElement.clientWidth - $('heatmap').previousElementSibling.offsetWidth - 8;
+  const WEEKS = clampNum(Math.floor((room + HEAT_GAP) / (HEAT_CELL + HEAT_GAP)), 12, 53);
+  // Past a year there's nothing more to show, so the cells grow (still square)
+  // to take up the rest of the row instead of leaving a gap at the end.
+  const cell = WEEKS === 53 ? clampNum(Math.floor((room + HEAT_GAP) / 53) - HEAT_GAP, HEAT_CELL, 18) : HEAT_CELL;
+  $('heatmap').parentElement.style.setProperty('--hc', cell + 'px');
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  // Wind back to the Monday that starts the earliest visible week
+  // Wind back to the Monday that starts the earliest visible week — this
+  // week's column counts as one of WEEKS, so the grid is exactly that wide.
   const start = new Date(today);
-  start.setDate(start.getDate() - (WEEKS * 7 - 1));
+  start.setDate(start.getDate() - (WEEKS - 1) * 7);
   const dow = (start.getDay() + 6) % 7;
   start.setDate(start.getDate() - dow);
   
@@ -4878,7 +4934,9 @@ function renderMiniWeek() {
 // ========== TIMER PRESETS ==========
 function renderPresets() {
   const p = [...settings.presets].sort((a, b) => a - b);
-  $('presets').innerHTML = p.map(s =>
+  // Titled like Laps, the rail's other list, so the chips read as a set that
+  // belongs there rather than loose pills floating beside the dial.
+  $('presets').innerHTML = '<span class="rail-title">Quick Start</span>' + p.map(s =>
     '<button class="preset-btn" data-time="' + (s * 1000) + '">' + presetLabel(s) +
     '<i class="preset-x" data-drop="' + s + '" title="Remove">\u00d7</i></button>'
   ).join('') +
@@ -4940,7 +4998,7 @@ function sanitiseMetroPresets() {
 }
 
 function renderMetroPresets() {
-  $('metroPresets').innerHTML = settings.metronomePresets.map((p, i) =>
+  $('metroPresets').innerHTML = '<span class="rail-title">Tempos</span>' + settings.metronomePresets.map((p, i) =>
     '<button class="preset-btn metro-mark" data-idx="' + i + '">' +
     p.name + ' \u00b7 ' + p.bpm + ' \u00b7 ' + p.num + '/' + p.den +
     '<i class="preset-x" data-drop="' + i + '" title="Remove">\u00d7</i></button>'
