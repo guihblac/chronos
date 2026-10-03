@@ -290,6 +290,7 @@ body.visual-sunset::before {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: var(--s2) var(--s4);
   margin-bottom: var(--s2);
   position: relative;
@@ -457,6 +458,16 @@ body.visual-sunset::before {
   gap: var(--s6);
   position: relative;
   z-index: 5;
+}
+
+/* On tall windows the whole stage drops a little, so the dial and controls
+   sit nearer the middle instead of hugging the header with the bottom third
+   left empty. Sized from the viewport only, never from what's on the stage —
+   tabs and dial must land in the same place in every mode, and centring on
+   content height would make them jump whenever Pomodoro's extra rows come
+   and go. Compact and immersive keep their own spacing. */
+body:not(.compact):not(.fullscreen) .stage {
+  margin-top: clamp(0px, (100vh - 760px) * .3, 100px);
 }
 
 .rail {
@@ -1105,6 +1116,29 @@ body.visual-sunset::before {
   display: none;
 }
 
+/* Heads Timer's and Metronome's preset lists in the right rail, in the same
+   voice as the Laps title that shares the rail with them. Full-width so it
+   always takes a line of its own above the wrapping chips. */
+.rail-title {
+  flex: 0 0 100%;
+  font-size: calc(11px * var(--ui-scale));
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--text2);
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+/* Beside the dial the rail is a column with a left edge, so the chips line up
+   on it instead of centring into a ragged block. */
+@media (min-width: 1100px) {
+  .wide .presets { justify-content: flex-start; margin-top: 0; }
+  .wide .rail-title { text-align: left; }
+  .wide.rails-swapped .presets { justify-content: flex-end; }
+  .wide.rails-swapped .rail-title { text-align: right; }
+}
+
 .preset-btn {
   padding: 8px 16px;
   border-radius: 20px;
@@ -1640,10 +1674,17 @@ body.visual-sunset::before {
   box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.theme-opt .icon {
-  font-size: calc(20px * var(--ui-scale));
-  margin-bottom: 6px;
+/* Each tile previews its theme with the same swatch the Visual theme row
+   shows when shut, rather than an emoji that looks different on every OS. */
+.theme-sw {
+  width: calc(26px * var(--ui-scale));
+  height: calc(26px * var(--ui-scale));
+  border-radius: 50%;
+  margin-bottom: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18), 0 2px 6px rgba(0, 0, 0, .25);
 }
+
+.light .theme-sw { box-shadow: inset 0 0 0 1px rgba(18, 18, 40, .14), 0 2px 6px rgba(18, 18, 40, .12); }
 
 .theme-opt .name {
   font-size: calc(10px * var(--ui-scale));
@@ -3463,8 +3504,56 @@ body.fullscreen {
 
 .wc-col.today .wc-lbl { color: var(--accent); }
 
+/* Thirty daily bars: tighter gaps, and the bars stay thin enough to read as
+   a run of days rather than a wall. */
+.week-chart.dense { gap: 3px; }
+.week-chart.dense .wc-bar { border-radius: 3px 3px 1px 1px; }
+.week-chart.dense .wc-lbl { letter-spacing: .04em; }
+
+/* ---------- Empty state ---------- */
+.dash-empty { display: none; }
+
+.dash.is-empty .dash-body > :not(.dash-empty) { display: none; }
+
+.dash.is-empty .dash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: auto;
+  padding: 48px 24px;
+  max-width: 420px;
+}
+
+.dash-empty-ico {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  margin-bottom: 18px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.dash-empty-ico svg { width: 24px; height: 24px; }
+
+.dash-empty-title {
+  font-size: calc(16px * var(--ui-scale));
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.dash-empty-sub {
+  font-size: calc(13px * var(--ui-scale));
+  line-height: 1.55;
+  color: var(--text2);
+}
+
 /* ---------- Heatmap ---------- */
 .heat-wrap {
+  --hc: 12px;        /* cell size; renderHeat() raises it when a year fits with room to spare */
   display: flex;
   gap: 8px;
   overflow-x: auto;
@@ -3473,12 +3562,11 @@ body.fullscreen {
 
 .heat-days {
   display: grid;
-  grid-template-rows: repeat(7, 1fr);
+  grid-template-rows: repeat(7, var(--hc));
   gap: 3px;
   font-size: calc(8px * var(--ui-scale));
   color: var(--text2);
   flex-shrink: 0;
-  height: 108px;
 }
 
 .heat-days span {
@@ -3490,15 +3578,15 @@ body.fullscreen {
 .heat-days span:nth-child(2) { grid-row: 4; }
 .heat-days span:nth-child(3) { grid-row: 6; }
 
+/* Fixed square cells (HEAT_CELL / HEAT_GAP in renderHeat, which picks how
+   many weeks fit) rather than columns stretched to fill the card. */
 .heat {
   display: grid;
-  grid-template-rows: repeat(7, 1fr);
+  grid-template-rows: repeat(7, var(--hc));
   grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  grid-auto-columns: var(--hc);
   gap: 3px;
-  height: 108px;
-  flex: 1;
-  min-width: 460px;
+  flex: none;
 }
 
 .hc {
@@ -4463,6 +4551,7 @@ body {
 
 .panel-section {
   margin-bottom: 24px;
+  transition: margin-bottom var(--sol-expand) var(--sol-smooth);
   border: none;
   background: none;
   box-shadow: none;
@@ -4500,11 +4589,16 @@ body {
   background: none;
   border-right: 1.6px solid var(--text2);
   border-bottom: 1.6px solid var(--text2);
-  transform: rotate(45deg) translate(-2px, -2px);
+  transform: rotate(-135deg) translate(-1px, -1px);
   transition: transform var(--t2) var(--sol-out), border-color var(--sol-micro) ease;
 }
 
-.panel-section.shut h3::after { transform: rotate(-135deg) translate(-1px, -1px); }
+/* Shut points down (there's more below), open points up (fold it away). */
+/* A shut section is only its header line, so the open-section gap below it
+   left the list looking gappy. It tightens in step with the body collapsing. */
+.panel-section.shut { margin-bottom: 6px; }
+
+.panel-section.shut h3::after { transform: rotate(45deg) translate(-2px, -2px); }
 .panel-section h3:hover::after { border-color: var(--accent); }
 
 .sec-body { transition: grid-template-rows var(--sol-expand) var(--sol-smooth), opacity var(--sol-micro) var(--sol-out); }
@@ -6655,6 +6749,10 @@ body.theme-swap .dial {
 @media (max-width: 460px) {
   .logo { flex-shrink: 0; }
 
+  /* Tighter between the buttons so the whole row still fits beside the
+     wordmark at phone widths, rather than butting straight up against it. */
+  .top-actions { gap: 6px; }
+
   .top-actions {
     min-width: 0;
     max-width: 100%;
@@ -7721,6 +7819,10 @@ body.visual-kymograph {
   display: none;
 }
 
+/* .rail-title's flex-basis is for Timer's wrapping row; in this column it
+   would become a height. */
+.metro-presets .rail-title { flex: none; }
+
 .metro-mark {
   width: 100%;
   text-align: left;
@@ -7901,4 +8003,13 @@ body.custom-palette:is(.visual-aurora, .visual-cosmic, .visual-glass, .visual-ma
    readings, as dark mode already does — the user is choosing those colours. */
 .custom-palette.visual-paceclock.light .dial {
   background: var(--border) !important;
+}
+
+/* Lap does nothing off a running stopwatch (see syncPlayBtn), so it says so
+   rather than taking clicks that go nowhere. It keeps its slot either way. */
+#lapBtn:disabled {
+  opacity: .3;
+  cursor: default;
+  pointer-events: none;
+  animation: none;
 }

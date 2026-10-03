@@ -208,7 +208,7 @@
         <div class="pomo-stat-label">Round</div>
       </div>
       <div class="pomo-stat">
-        <div class="pomo-stat-value" id="pomoTotal" role="button" tabindex="0" aria-label="Focus total. Activate to edit." title="Click to edit">0m</div>
+        <div class="pomo-stat-value" id="pomoTotal" role="button" tabindex="0" aria-label="Focus total. Activate to edit." title="Click to edit">00:00</div>
         <div class="pomo-stat-label">Focus</div>
       </div>
       <div class="pomo-stat">
@@ -328,25 +328,25 @@
             <i class="sel-arrow" aria-hidden="true"></i>
           </div>
           <div class="sel-body"><div class="sel-inner">
-            <p class="sub-note">Switch on any glow below to remove just that one. Reduce Glow itself removes them all at once, and each keeps its own setting for when you switch it back off.</p>
+            <p class="sub-note">Hide any one glow below on its own. Reduce Glow hides them all at once, and each keeps its own setting for when you switch it back off.</p>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Dial Glow<i class="row-sub">The halo around the dial while running, and the accent tint on its face</i></span>
+              <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Hide Dial Glow<i class="row-sub">The halo around the dial while running, and the accent tint on its face</i></span>
               <div class="toggle" id="bloomToggle"></div>
             </div>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="image"></i><span class="setting-label">Background Glow<i class="row-sub">The accent wash and shaded edges behind the page — on leaves a flat, solid colour</i></span>
+              <i class="row-ico" aria-hidden="true" data-ico="haze"></i><span class="setting-label">Hide Background Glow<i class="row-sub">The accent wash and shaded edges behind the page, leaving a flat, solid colour</i></span>
               <div class="toggle" id="glowBgToggle"></div>
             </div>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="bulb"></i><span class="setting-label">Ring Glow<i class="row-sub">The light along the progress arc and its head</i></span>
+              <i class="row-ico" aria-hidden="true" data-ico="bulb"></i><span class="setting-label">Hide Ring Glow<i class="row-sub">The light along the progress arc and its head</i></span>
               <div class="toggle" id="glowRingToggle"></div>
             </div>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="sun"></i><span class="setting-label">Readout Glow<i class="row-sub">The soft glow on the time while running</i></span>
+              <i class="row-ico" aria-hidden="true" data-ico="sun"></i><span class="setting-label">Hide Readout Glow<i class="row-sub">The soft glow on the time while running</i></span>
               <div class="toggle" id="glowReadoutToggle"></div>
             </div>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Button Glow<i class="row-sub">The pulsing glow on the primary button, ambient sounds, and the metronome</i></span>
+              <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Hide Button Glow<i class="row-sub">The pulsing glow on the primary button, ambient sounds, and the metronome</i></span>
               <div class="toggle" id="glowButtonToggle"></div>
             </div>
           </div></div>
@@ -380,22 +380,22 @@
           </div>
           <div class="sel-body"><div class="sel-inner">
         <div class="theme-grid" id="themeGrid">
-          <div class="theme-opt active" data-theme="default"><div class="icon">◐</div><div class="name">Default</div></div>
-          <div class="theme-opt" data-theme="minimal"><div class="icon">○</div><div class="name">Minimal</div></div>
-          <div class="theme-opt" data-theme="aurora"><div class="icon">🌈</div><div class="name">Aurora</div></div>
-          <div class="theme-opt" data-theme="matrix"><div class="icon">💻</div><div class="name">Matrix</div></div>
-          <div class="theme-opt" data-theme="sunset"><div class="icon">🌅</div><div class="name">Sunset</div></div>
-          <div class="theme-opt" data-theme="neon"><div class="icon">💡</div><div class="name">Neon</div></div>
-          <div class="theme-opt" data-theme="glass"><div class="icon">💎</div><div class="name">Glass</div></div>
-          <div class="theme-opt" data-theme="retro"><div class="icon">📟</div><div class="name">Retro</div></div>
-          <div class="theme-opt" data-theme="cosmic"><div class="icon">🌌</div><div class="name">Cosmic</div></div>
-          <div class="theme-opt" data-theme="vivaldi"><div class="icon">🎵</div><div class="name">Vivaldi</div></div>
-          <div class="theme-opt" data-theme="bahnhof"><div class="icon">🚉</div><div class="name">Bahnhof</div></div>
-          <div class="theme-opt" data-theme="safelight"><div class="icon">🔴</div><div class="name">Safelight</div></div>
-          <div class="theme-opt" data-theme="paceclock"><div class="icon">🎛️</div><div class="name">Pace Clock</div></div>
-          <div class="theme-opt" data-theme="gnomon"><div class="icon">🌒</div><div class="name">Gnomon</div></div>
-          <div class="theme-opt" data-theme="vane"><div class="icon">🪧</div><div class="name">Vane</div></div>
-          <div class="theme-opt" data-theme="kymograph"><div class="icon">📈</div><div class="name">Kymograph</div></div>
+          <div class="theme-opt active" data-theme="default"><span class="theme-sw sw-default" aria-hidden="true"></span><div class="name">Default</div></div>
+          <div class="theme-opt" data-theme="minimal"><span class="theme-sw sw-minimal" aria-hidden="true"></span><div class="name">Minimal</div></div>
+          <div class="theme-opt" data-theme="aurora"><span class="theme-sw sw-aurora" aria-hidden="true"></span><div class="name">Aurora</div></div>
+          <div class="theme-opt" data-theme="matrix"><span class="theme-sw sw-matrix" aria-hidden="true"></span><div class="name">Matrix</div></div>
+          <div class="theme-opt" data-theme="sunset"><span class="theme-sw sw-sunset" aria-hidden="true"></span><div class="name">Sunset</div></div>
+          <div class="theme-opt" data-theme="neon"><span class="theme-sw sw-neon" aria-hidden="true"></span><div class="name">Neon</div></div>
+          <div class="theme-opt" data-theme="glass"><span class="theme-sw sw-glass" aria-hidden="true"></span><div class="name">Glass</div></div>
+          <div class="theme-opt" data-theme="retro"><span class="theme-sw sw-retro" aria-hidden="true"></span><div class="name">Retro</div></div>
+          <div class="theme-opt" data-theme="cosmic"><span class="theme-sw sw-cosmic" aria-hidden="true"></span><div class="name">Cosmic</div></div>
+          <div class="theme-opt" data-theme="vivaldi"><span class="theme-sw sw-vivaldi" aria-hidden="true"></span><div class="name">Vivaldi</div></div>
+          <div class="theme-opt" data-theme="bahnhof"><span class="theme-sw sw-bahnhof" aria-hidden="true"></span><div class="name">Bahnhof</div></div>
+          <div class="theme-opt" data-theme="safelight"><span class="theme-sw sw-safelight" aria-hidden="true"></span><div class="name">Safelight</div></div>
+          <div class="theme-opt" data-theme="paceclock"><span class="theme-sw sw-paceclock" aria-hidden="true"></span><div class="name">Pace Clock</div></div>
+          <div class="theme-opt" data-theme="gnomon"><span class="theme-sw sw-gnomon" aria-hidden="true"></span><div class="name">Gnomon</div></div>
+          <div class="theme-opt" data-theme="vane"><span class="theme-sw sw-vane" aria-hidden="true"></span><div class="name">Vane</div></div>
+          <div class="theme-opt" data-theme="kymograph"><span class="theme-sw sw-kymograph" aria-hidden="true"></span><div class="name">Kymograph</div></div>
         </div>
           </div></div>
         </div>
@@ -956,6 +956,12 @@
     </div>
     
     <div class="dash-body">
+      <div class="dash-empty">
+        <i class="dash-empty-ico" aria-hidden="true" data-ico="chart"></i>
+        <p class="dash-empty-title">Your sessions will show up here</p>
+        <p class="dash-empty-sub">Time something with the stopwatch, timer or Pomodoro and this fills in with your totals, time by tag, and a calendar of your activity.</p>
+      </div>
+
       <div class="dash-range" id="dashRange" role="group" aria-label="Date range">
         <button class="chip" data-range="7">7 days</button>
         <button class="chip" data-range="30">30 days</button>
@@ -970,7 +976,7 @@
       </div>
       
       <div class="dash-card">
-        <h3>Last 7 Days</h3>
+        <h3 id="weekTitle">Last 7 Days</h3>
         <div class="week-chart" id="weekChart"></div>
       </div>
       
