@@ -1,7 +1,7 @@
 // ========== GLOBALS ==========
 // Bump on every delivery. Shown in the background diagnostic so we can tell at a
 // glance whether the browser is running this file or a cached older one.
-const BUILD = 'B24 sync+icon fix';
+const BUILD = 'B39 centring reverted';
 const $ = id => document.getElementById(id);
 const CIRC = 2 * Math.PI * 126;
 
@@ -55,7 +55,9 @@ const DEPS = [
   ['soundDep', 'sound'],
   ['worldDep', 'worldClocks'],
   ['clockDep', 'modes.clock'],
-  ['numeralsDep', 'showNumerals']
+  ['numeralsDep', 'showNumerals'],
+  ['ringDep', 'showRing'],
+  ['metroTimerDep', 'metroTimer']
 ];
 
 // Reads a settings key, or a dotted path into one. DEPS needs the second form
@@ -68,6 +70,7 @@ function setting(path) {
 // Declared order is tab order, and it's also the fallback order: when the mode
 // on screen gets hidden, the first enabled one in this list takes over.
 const MODES = ['stopwatch', 'timer', 'pomodoro', 'clock', 'metronome'];
+const UNTIL_MAX = 4;   // Clock mode's "time until" rows
 const MODE_KEYS = { Digit1: 'stopwatch', Digit2: 'timer', Digit3: 'pomodoro', Digit4: 'clock', Digit5: 'metronome' };
 
 const modeTab = m => document.querySelector('.mode-tab[data-mode="' + m + '"]');
@@ -131,7 +134,9 @@ const ICONS = {
   tick: '<circle cx="12" cy="12" r="9"/><path d="M12 3v2.5"/><path d="M12 18.5V21"/><path d="M21 12h-2.5"/><path d="M5.5 12H3"/><path d="M18.36 5.64l-1.77 1.77"/><path d="M7.41 16.59l-1.77 1.77"/><path d="M18.36 18.36l-1.77-1.77"/><path d="M7.41 7.41L5.64 5.64"/>',
   volume: '<path d="M4 9.5h3L11.5 6v12L7 14.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6"/><path d="M18.2 6.5a7.5 7.5 0 0 1 0 11"/>',
   notifications: '<path d="M18 9a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16S18 14 18 9z"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/><circle cx="18" cy="5.5" r="2.6" fill="currentColor" stroke="none"/>',
-  resize: '<path d="M4 10V5.5A1.5 1.5 0 0 1 5.5 4H10"/><path d="M20 14v4.5a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M9.5 14.5l-5 5"/><path d="M14.5 9.5l5-5"/>'
+  resize: '<path d="M4 10V5.5A1.5 1.5 0 0 1 5.5 4H10"/><path d="M20 14v4.5a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M9.5 14.5l-5 5"/><path d="M14.5 9.5l5-5"/>',
+  bookmark: '<path d="M6.5 3.5h11a1 1 0 0 1 1 1V21l-6.5-4-6.5 4V4.5a1 1 0 0 1 1-1z"/>',
+  download: '<path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 20h14"/>'
 };
 
 function icon(name, size) {
@@ -395,18 +400,101 @@ function applyBgAudio() {
   }
 }
 
+// Which effect layers exist at all is a body class, not just an opacity: a
+// full-screen layer at 0% still costs the compositor a surface, and the grain
+// layer's blend mode makes it isolate everything beneath it. apply() rebuilds
+// className from scratch, so this has to run from there as well or a theme
+// change silently drops the Duotone tint.
+function syncBgFxClasses() {
+  const b = document.body;
+  b.classList.toggle('bg-duotone', settings.bgDuotone);
+  b.classList.toggle('bg-vignette', settings.bgVignette > 0);
+  b.classList.toggle('bg-grain', settings.bgGrain > 0);
+}
+
+// Reduce Glow is a circuit breaker, not a sixth setting: switching it on
+// suppresses every glow below without touching what each one is individually
+// set to, so switching it back off returns each to whatever it already was.
+// That logic lives here rather than in the CSS so every glow rule only ever
+// has to check one class each — .no-dial-glow already means "master is on,
+// or this one specifically is off", nothing downstream needs to know which.
+// Reduce Glow's rows: [switch id, setting key]. The keys still read "this glow
+// is shown" (true by default), as they always have, so saved settings and
+// presets carry over untouched; each switch just shows and flips the inverse.
+const GLOW_ROWS = [
+  ['bloomToggle', 'showBloom'],
+  ['glowBgToggle', 'glowBackground'],
+  ['glowRingToggle', 'glowRing'],
+  ['glowReadoutToggle', 'glowReadout'],
+  ['glowButtonToggle', 'glowButtons']
+];
+
+function syncGlowClasses() {
+  const b = document.body, off = settings.reduceGlow;
+  b.classList.toggle('no-dial-glow', off || !settings.showBloom);
+  b.classList.toggle('no-bg-glow', off || !settings.glowBackground);
+  b.classList.toggle('no-ring-glow', off || !settings.glowRing);
+  b.classList.toggle('no-readout-glow', off || !settings.glowReadout);
+  b.classList.toggle('no-button-glow', off || !settings.glowButtons);
+}
+
 function applyBgFilters() {
+  const b = settings.bgBlur;
   document.body.style.setProperty('--bg-dim', (settings.bgDim / 100).toFixed(2));
+  document.body.style.setProperty('--bg-vignette', (settings.bgVignette / 100).toFixed(2));
+  document.body.style.setProperty('--bg-grain', (settings.bgGrain / 100).toFixed(2));
+  syncBgFxClasses();
+
   const media = $('bgMedia').firstElementChild;
   if (!media) return;
-  const b = settings.bgBlur;
-  media.style.filter = b ? 'blur(' + b + 'px)' : '';
+  const filters = [];
+  if (b) filters.push('blur(' + b + 'px)');
+  if (settings.bgBrightness !== 100) filters.push('brightness(' + (settings.bgBrightness / 100).toFixed(2) + ')');
+  if (settings.bgContrast !== 100) filters.push('contrast(' + (settings.bgContrast / 100).toFixed(2) + ')');
+  if (settings.bgSaturate !== 100) filters.push('saturate(' + (settings.bgSaturate / 100).toFixed(2) + ')');
+  if (settings.bgHue) filters.push('hue-rotate(' + settings.bgHue + 'deg)');
+  // Duotone reads as muddy over the image's own colours, so it forces full
+  // desaturation underneath the accent tint regardless of the Grayscale slider.
+  if (settings.bgGrayscale || settings.bgDuotone) filters.push('grayscale(' + (settings.bgDuotone ? 1 : settings.bgGrayscale / 100).toFixed(2) + ')');
+  if (settings.bgSepia) filters.push('sepia(' + (settings.bgSepia / 100).toFixed(2) + ')');
+  media.style.filter = filters.join(' ');
   // Blur samples past the edges, so scale up to hide translucent borders
   media.style.transform = b ? 'scale(' + (1 + b / 90).toFixed(3) + ')' : '';
   // A blurred video is a per-frame convolution over the whole viewport, so it
   // gets promoted to its own layer and the blur is applied once on the GPU
   // rather than recomputed against everything painted behind it.
   if (media.tagName === 'VIDEO') media.style.willChange = b ? 'filter, transform' : '';
+}
+
+// ========== WINDOW EFFECTS PRESETS ==========
+// One-tap combinations — each just sets the sliders below, so a preset is a
+// starting point, not a locked-in look. Blur and Dim are left alone since
+// those are about legibility over the user's own media, not the mood.
+const BG_FX_PRESETS = {
+  default: { bgBrightness: 100, bgContrast: 100, bgSaturate: 100, bgHue: 0,  bgGrayscale: 0,   bgSepia: 0,  bgVignette: 0,  bgGrain: 0,  bgDuotone: false },
+  cinema:  { bgBrightness: 92,  bgContrast: 115, bgSaturate: 88,  bgHue: 0,  bgGrayscale: 0,   bgSepia: 6,  bgVignette: 45, bgGrain: 8,  bgDuotone: false },
+  noir:    { bgBrightness: 95,  bgContrast: 130, bgSaturate: 0,   bgHue: 0,  bgGrayscale: 100, bgSepia: 0,  bgVignette: 55, bgGrain: 14, bgDuotone: false },
+  vintage: { bgBrightness: 105, bgContrast: 92,  bgSaturate: 70,  bgHue: 0,  bgGrayscale: 0,   bgSepia: 35, bgVignette: 35, bgGrain: 18, bgDuotone: false },
+  dream:   { bgBrightness: 112, bgContrast: 88,  bgSaturate: 120, bgHue: 0,  bgGrayscale: 0,   bgSepia: 0,  bgVignette: 20, bgGrain: 0,  bgDuotone: false },
+  cyber:   { bgBrightness: 100, bgContrast: 120, bgSaturate: 150, bgHue: 270, bgGrayscale: 0,  bgSepia: 0,  bgVignette: 40, bgGrain: 0,  bgDuotone: false },
+  sunset:  { bgBrightness: 105, bgContrast: 105, bgSaturate: 130, bgHue: 25, bgGrayscale: 0,   bgSepia: 15, bgVignette: 30, bgGrain: 0,  bgDuotone: false }
+};
+
+function applyBgFxPreset(name) {
+  const p = BG_FX_PRESETS[name];
+  if (!p) return;
+  Object.assign(settings, p);
+  applyBgFilters();
+  updateUI();
+  save();
+}
+
+// Highlights a preset chip only while every value it set still matches —
+// one slider nudge and the settings simply stop being "that preset", same as
+// the theme/accent pickers do when a custom colour drifts off every swatch.
+function bgFxMatchesPreset(name) {
+  const p = BG_FX_PRESETS[name];
+  return !!p && Object.keys(p).every(k => settings[k] === p[k]);
 }
 
 // ---------- entry points ----------
@@ -445,34 +533,52 @@ const settings = {
   dark: true,
   fullscreen: false,
   showRing: true,
+  showBloom: true,
+  reduceGlow: false,
+  glowBackground: true,
+  glowRing: true,
+  glowReadout: true,
+  glowButtons: true,
   showTicks: true,
   showNumerals: false,
   numeralStyle: 'quarters',
+  ringLapMin: 60,
   tips: true,
   visualTheme: 'default',
   motion: 'auto',
+  intro: false,
   colorTheme: 'indigo',
   customColor: null,
   clockScale: 100,
   uiScale: 100,
   useCustomPalette: false,
   customPalette: { bg: null, card: null, border: null, text: null, text2: null },
+  customPaletteFrom: null,   // theme|dark-or-light the palette was seeded from
   dialSize: 340,
   ringThickness: 8,
   timeFont: 'mono',
   customFontName: '',
   swapRails: false,
   topBarOrder: ['theme', 'voice', 'dashboard', 'pip', 'fullscreen', 'settings'],
-  showAnalytics: true,
-  showAmbientBar: true,
-  showQuotes: true,
+  showAnalytics: false,
+  showAmbientBar: false,
+  showQuotes: false,
   compact: false,
   wide: true,
-  showTagCard: true,
+  showTagCard: false,
   showSplit: false,
   signature: true,
   bgDim: 35,
   bgBlur: 0,
+  bgBrightness: 100,
+  bgContrast: 100,
+  bgSaturate: 100,
+  bgHue: 0,
+  bgGrayscale: 0,
+  bgSepia: 0,
+  bgVignette: 0,
+  bgGrain: 0,
+  bgDuotone: false,
   bgSound: false,
   bgVolume: 0.5,
   dailyGoal: 120,
@@ -485,16 +591,25 @@ const settings = {
     { name: 'Allegro', bpm: 144, num: 4, den: 4 },
     { name: 'Presto', bpm: 184, num: 4, den: 4 }
   ],
+  // Saved presets are a power-user list (add/remove, its own names) that most
+  // people never touch, so the rail they used to occupy full-time now stays
+  // off until asked for — the live tempo name below the BPM covers the common
+  // "what does this tempo mean" case without it.
+  showMetroPresets: false,
   recentTags: [],
   shutSections: [],
+  sectionsTouched: false,
   hour12: false,
   clockSeconds: false,
   // Which mode tabs exist. Clock is off by default; Metronome ships on, since
   // it's the reason for this release.
-  modes: { stopwatch: true, timer: true, pomodoro: true, clock: false, metronome: true },
+  modes: { stopwatch: true, timer: true, pomodoro: true, clock: false, metronome: false },
   clockTz: '',        // '' = this device. Otherwise a key into tzMap.
   bgRun: true,        // leaving a mode lets its clock carry on
   clockDate: true,
+  untilTargets: [],   // Clock mode's "time until" list, as minutes past midnight
+  metroTimer: false,  // practice timer: stop the metronome after metroTimerSecs
+  metroTimerSecs: 300,
   notifications: false,
   customCSS: '',
   customQuotes: null,
@@ -504,7 +619,7 @@ const settings = {
   // den-note); bpm is always denominator-note beats per minute, which is the
   // one convention that needs no special case for compound meters — 6/8 is
   // just num:6 den:8, six even pulses, no "dotted quarter" concept required.
-  metronome: { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true },
+  metronome: { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true, sound: 'click' },
   sound: true,
   alertSound: 'chime',
   volume: 0.5,
@@ -513,11 +628,12 @@ const settings = {
   voice: false,
   wake: true,
   confirm: false,
-  worldClocks: true,
+  worldClocks: false,
   clocks: ['London', 'Tokyo', 'New York'],
   autoBreak: true,
   longBreaks: true,
-  keys: { toggle: 'Space', lap: 'KeyL', reset: 'KeyR', fullscreen: 'KeyF', settings: 'KeyS' }
+  keys: { toggle: 'Space', lap: 'KeyL', reset: 'KeyR', fullscreen: 'KeyF', settings: 'KeyS' },
+  savedPresets: []   // [{ name, data, saved }] — see snapshotSettings()
 };
 
 let history = [];
@@ -554,6 +670,20 @@ const tzMap = {
 };
 
 const MAX_CLOCKS = 6;
+
+// A saved preset is a snapshot of everything in Settings under a name. Written
+// as a list of what to leave out rather than what to include, so a setting added
+// later is captured without anyone remembering to register it here.
+const MAX_PRESETS = 20;
+const PRESET_SKIP = new Set([
+  'fullscreen',                                             // a moment, not a preference
+  'notifications',                                          // mirrors a browser permission a preset can't grant
+  'savedPresets',                                           // a preset holding presets
+  'customQuotes', 'presets', 'metronomePresets', 'recentTags', // the user's own content
+  'untilTargets',
+  'shutSections', 'sectionsTouched',                        // which panel sections are folded
+  'pomoVersion'                                             // a migration marker
+]);
 
 // ========== TIME HELPERS ==========
 function parseMMSS(str) {
@@ -644,6 +774,17 @@ function lighten(hex, pct) {
   return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
+// The settings panel's scrollbar takes its width out of the panel's right
+// side, so cards sat 22px from the left edge but 22px + scrollbar from the
+// right. CSS can't read a scrollbar's width, so it's measured here off the
+// real element and handed back as --sbw (see PANEL ALIGNMENT in the sheet).
+function measureScrollbar() {
+  const pc = document.querySelector('#settingsPanel .panel-content');
+  if (!pc) return;
+  const w = Math.max(0, pc.offsetWidth - pc.clientWidth);
+  document.documentElement.style.setProperty('--sbw', w + 'px');
+}
+
 // ========== INIT ==========
 function init() {
   load();
@@ -654,6 +795,7 @@ function init() {
   renderColors();
   renderClocks();
   renderQuotes();
+  renderUserPresets();
   applyCustomCSS();
   apply();
   bindEvents();
@@ -663,13 +805,19 @@ function init() {
   setInterval(updateWorldClocks, 1000);
   if (settings.tips) setTimeout(showQuote, 2000);
   buildTicks();
+  measureScrollbar();
+  // Watching the box rather than the window: the scrollbar's width changes the
+  // panel's content width, so a stale --sbw corrects itself instead of waiting
+  // for a resize event that may never come (device emulation, OS setting).
+  const sbProbe = document.querySelector('#settingsPanel .panel-content');
+  if (sbProbe && window.ResizeObserver) new ResizeObserver(measureScrollbar).observe(sbProbe);
   boot();
   a11yInit();
   registerSW();
   
   let savedTitle = null;
   try { savedTitle = localStorage.getItem('chronos_title'); } catch (e) {}
-  if (savedTitle) $('titleEdit').textContent = '⏱ ' + savedTitle;
+  if (savedTitle) $('titleText').textContent = savedTitle;
 
   // Launch shortcuts from the installed app's icon (manifest.webmanifest).
   // Checked against settings.modes as well as MODES, so a shortcut can't drop
@@ -710,15 +858,24 @@ function load() {
     const a = localStorage.getItem('chronos_a');
     if (a) Object.assign(analytics, JSON.parse(a));
   } catch (e) { console.error('Load error:', e); }
-  
-  // Outside the try: if localStorage is unavailable (private mode, blocked
-  // storage, some file:// contexts) the block above throws part-way through and
-  // these defaults never get applied, leaving customQuotes null and crashing
-  // init on the first render.
+
+  sanitiseSettings();
+  if (!Array.isArray(history)) history = [];
+  settings.fullscreen = false;
+}
+
+// Outside load()'s try: if localStorage is unavailable (private mode, blocked
+// storage, some file:// contexts) that block throws part-way through and these
+// defaults would never get applied, leaving customQuotes null and crashing init
+// on the first render. Also what a preset is run through before it's applied,
+// since a saved preset can come from an imported file.
+function sanitiseSettings() {
   if (!Array.isArray(settings.customQuotes) || !settings.customQuotes.length) settings.customQuotes = DEFAULT_QUOTES.slice();
   if (!Array.isArray(settings.recentTags)) settings.recentTags = [];
   if (!Array.isArray(settings.shutSections)) settings.shutSections = [];
+  settings.sectionsTouched = !!settings.sectionsTouched;
   if (!Array.isArray(settings.clocks)) settings.clocks = ['London', 'Tokyo', 'New York'];
+  settings.clocks = settings.clocks.filter(c => tzMap[c]).slice(0, MAX_CLOCKS);
   const DEFAULT_TOPBAR_ORDER = ['theme', 'voice', 'dashboard', 'pip', 'fullscreen', 'settings'];
   if (!Array.isArray(settings.topBarOrder) || settings.topBarOrder.length !== DEFAULT_TOPBAR_ORDER.length ||
       !DEFAULT_TOPBAR_ORDER.every(k => settings.topBarOrder.includes(k))) {
@@ -729,9 +886,18 @@ function load() {
   } else {
     ['bg', 'card', 'border', 'text', 'text2'].forEach(k => {
       if (!(k in settings.customPalette)) settings.customPalette[k] = null;
+      // The old seeder stored computed `rgb(r, g, b)` strings, which the
+      // colour pickers can't display. Normalise those to #rrggbb.
+      const m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(settings.customPalette[k] || '');
+      if (m) settings.customPalette[k] = '#' + m.slice(1, 4).map(n => (+n).toString(16).padStart(2, '0')).join('');
     });
   }
   if (!['auto', 'full', 'none'].includes(settings.motion)) settings.motion = 'auto';
+  // Briefly a two-way switch (hour / minute) before it became a free number.
+  if (settings.ringLap === 'minute') settings.ringLapMin = 1;
+  delete settings.ringLap;
+  { const n = Math.round(+settings.ringLapMin);
+    settings.ringLapMin = isFinite(n) ? clampNum(n, 1, 720) : 60; }
   delete settings.clockTab;
   if (!settings.modes || typeof settings.modes !== 'object') settings.modes = {};
   MODES.forEach(m => {
@@ -742,6 +908,12 @@ function load() {
   if (!enabledModes().length) settings.modes.stopwatch = true;
   if (!tzMap[settings.clockTz]) settings.clockTz = '';
   settings.clockDate = !!settings.clockDate;
+  settings.metroTimer = !!settings.metroTimer;
+  settings.metroTimerSecs = Math.max(1, Math.min(10800, Math.round(+settings.metroTimerSecs) || 300));
+  settings.untilTargets = (Array.isArray(settings.untilTargets) ? settings.untilTargets : [])
+    .map(v => Math.round(+v))
+    .filter((v, i, a) => v >= 0 && v < 1440 && a.indexOf(v) === i)
+    .slice(0, UNTIL_MAX);
   settings.bgRun = settings.bgRun !== false;
   const clamp = (v, lo, hi, dflt) => { const n = +v; return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); };
   settings.clockScale = clamp(settings.clockScale, 60, 130, 100);
@@ -750,21 +922,49 @@ function load() {
   // saved value can't sit outside what the control can express.
   settings.dialSize = Math.round(clamp(settings.dialSize, 200, 400, 340));
   settings.ringThickness = Math.round(clamp(settings.ringThickness, 2, 20, 8));
+  settings.bgBrightness = Math.round(clamp(settings.bgBrightness, 40, 160, 100));
+  settings.bgContrast = Math.round(clamp(settings.bgContrast, 40, 160, 100));
+  settings.bgSaturate = Math.round(clamp(settings.bgSaturate, 0, 200, 100));
+  settings.bgHue = Math.round(clamp(settings.bgHue, 0, 360, 0));
+  settings.bgGrayscale = Math.round(clamp(settings.bgGrayscale, 0, 100, 0));
+  settings.bgSepia = Math.round(clamp(settings.bgSepia, 0, 100, 0));
+  settings.bgVignette = Math.round(clamp(settings.bgVignette, 0, 100, 0));
+  settings.bgGrain = Math.round(clamp(settings.bgGrain, 0, 100, 0));
+  settings.bgDuotone = !!settings.bgDuotone;
+  settings.reduceGlow = !!settings.reduceGlow;
+  settings.glowBackground = settings.glowBackground !== false;
+  settings.glowRing = settings.glowRing !== false;
+  settings.glowReadout = settings.glowReadout !== false;
+  settings.glowButtons = settings.glowButtons !== false;
   // The inline "1/4" editor used to write this unclamped, so a saved file can
   // hold any number at all.
   if (!settings.pomo || typeof settings.pomo !== 'object') settings.pomo = { work: 1500, short: 300, long: 900, rounds: 4 };
   settings.pomo.rounds = Math.round(clamp(settings.pomo.rounds, 1, MAX_ROUNDS, 4));
   if (!settings.metronome || typeof settings.metronome !== 'object') {
-    settings.metronome = { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true };
+    settings.metronome = { bpm: 120, num: 4, den: 4, subdivision: 1, distinctSounds: true, sound: 'click' };
   }
-  settings.metronome.bpm = Math.round(clamp(settings.metronome.bpm, 30, 300, 120));
+  // 20, not 40 or 60 like a real mechanical metronome's floor — the classic
+  // "practice absurdly slow to build precision" technique serious musicians
+  // actually use goes below the range any named tempo marking covers, and
+  // there's no reason to cut it off above what the whole rest of the range
+  // already goes down to.
+  settings.metronome.bpm = Math.round(clamp(settings.metronome.bpm, 20, 300, 120));
   settings.metronome.num = Math.round(clamp(settings.metronome.num, 1, 16, 4));
+  clampMetroSubdivision();   // a saved bpm/subdivision pair from before this guard existed
   if (![2, 4, 8, 16].includes(settings.metronome.den)) settings.metronome.den = 4;
   if (![1, 2, 3, 4].includes(settings.metronome.subdivision)) settings.metronome.subdivision = 1;
   settings.metronome.distinctSounds = settings.metronome.distinctSounds !== false;
+  if (!METRO_SOUND_STYLES.includes(settings.metronome.sound)) settings.metronome.sound = 'click';
   sanitiseMetroPresets();
-  if (!Array.isArray(history)) history = [];
-  settings.fullscreen = false;
+  ['work', 'short', 'long'].forEach(k => {
+    settings.pomo[k] = Math.max(1, Math.round(+settings.pomo[k]) || { work: 1500, short: 300, long: 900 }[k]);
+  });
+  settings.keys = Object.assign({ toggle: 'Space', lap: 'KeyL', reset: 'KeyR', fullscreen: 'KeyF', settings: 'KeyS' },
+    settings.keys && typeof settings.keys === 'object' ? settings.keys : {});
+  settings.savedPresets = (Array.isArray(settings.savedPresets) ? settings.savedPresets : [])
+    .filter(p => p && typeof p.name === 'string' && p.name.trim() && p.data && typeof p.data === 'object')
+    .slice(0, MAX_PRESETS)
+    .map(p => ({ name: p.name.trim().slice(0, 40), data: p.data, saved: +p.saved || 0 }));
 }
 
 function save() {
@@ -775,6 +975,7 @@ function save() {
     localStorage.setItem('chronos_h', JSON.stringify(history.slice(-500)));
     localStorage.setItem('chronos_a', JSON.stringify(analytics));
   } catch (e) { console.warn('Save failed:', e); }
+  queuePresetSync();
 }
 
 // ========== APPLY SETTINGS ==========
@@ -789,8 +990,13 @@ function apply() {
   if (settings.compact) b.classList.add('compact');
   if (settings.wide) b.classList.add('wide');
   if (bgActive) b.classList.add('has-bg');   // rebuilt className would drop it
+  syncBgFxClasses();                          // ...and these
+  syncGlowClasses();                          // ...and these
   if (settings.timeFont !== 'mono') b.classList.add('font-' + settings.timeFont);
   if (settings.visualTheme !== 'default') b.classList.add('visual-' + settings.visualTheme);
+  // Lets the stylesheet put the custom base palette ahead of the themes that
+  // paint surfaces in their own literal colours (see the end of chronos.css).
+  if (settings.useCustomPalette) b.classList.add('custom-palette');
   // Gates each direction's one big effect (Safelight's pool of light, Pace
   // Clock's 60 lamps, Bahnhof's held second) without touching its palette.
   if (settings.signature) b.classList.add('signature');
@@ -811,6 +1017,7 @@ function apply() {
   b.style.setProperty('--clock-scale', settings.clockScale / 100);
   b.style.setProperty('--ui-scale', settings.uiScale / 100);
   $('ringProgress').classList.toggle('hidden', !settings.showRing);
+  $('bloom').classList.toggle('hidden', !settings.showBloom);
   $('ticks').classList.toggle('hidden', !settings.showTicks);
   $('numerals').classList.toggle('hidden', !settings.showNumerals);
   buildNumerals();
@@ -853,15 +1060,108 @@ function applyCustomPalette() {
   });
 }
 
-// Seeds the pickers from what's actually on screen so turning the toggle on
-// doesn't jump straight to editing an all-null (black) palette.
-function seedCustomPaletteIfEmpty() {
+// Seeds the pickers from the theme that's on screen, so turning the toggle on
+// starts from the colours you're looking at rather than the app defaults.
+//
+// Two things used to go wrong. It read only the five base tokens, but several
+// themes paint the page, dial and readout in their own fixed colours (the
+// same lists the custom-palette block at the end of chronos.css overrides),
+// so Aurora or Sunset seeded the plain default palette. And it stored the
+// computed `rgb(…)` strings, which <input type="color"> rejects — the picker
+// silently showed black/default instead. Everything here resolves to #rrggbb.
+//
+// It re-seeds whenever the theme (or dark/light) differs from the one the
+// palette was last taken from, and keeps your edits if you only toggle it off
+// and back on within the same theme.
+const PALETTE_LITERAL = {
+  page:  ['aurora', 'cosmic', 'glass', 'matrix', 'neon', 'retro', 'safelight', 'sunset'],
+  dial:  ['aurora', 'cosmic', 'glass', 'matrix', 'neon', 'retro', 'sunset'],
+  text:  ['matrix', 'neon', 'retro', 'sunset'],
+  label: ['matrix', 'neon', 'paceclock', 'retro']
+};
+
+function paletteSourceKey() { return settings.visualTheme + (settings.dark ? '|dark' : '|light'); }
+
+let colorCtx = null;
+// Any CSS colour (rgb, hex, color-mix output, oklab…) to {r,g,b,a}, via a 1px
+// canvas so the browser does the conversion. null when there's no canvas.
+function cssColor(str) {
+  if (!str) return null;
+  if (colorCtx === null) {
+    try { const c = document.createElement('canvas'); c.width = c.height = 1; colorCtx = c.getContext('2d', { willReadFrequently: true }) || false; }
+    catch (e) { colorCtx = false; }
+  }
+  if (!colorCtx) return null;
+  colorCtx.clearRect(0, 0, 1, 1);
+  colorCtx.fillStyle = '#000';
+  colorCtx.fillStyle = str;
+  colorCtx.fillRect(0, 0, 1, 1);
+  const d = colorCtx.getImageData(0, 0, 1, 1).data;
+  return { r: d[0], g: d[1], b: d[2], a: d[3] / 255 };
+}
+
+// Flattens a translucent colour onto what's behind it — a 5% white dial over
+// the page is, to the eye, the page a touch lighter.
+function overColor(c, under) {
+  if (!c) return under;
+  if (!under || c.a >= 0.99) return c;
+  const m = k => Math.round(c[k] * c.a + under[k] * (1 - c.a));
+  return { r: m('r'), g: m('g'), b: m('b'), a: 1 };
+}
+
+function hexColor(c) {
+  return c ? '#' + [c.r, c.g, c.b].map(x => x.toString(16).padStart(2, '0')).join('') : null;
+}
+
+// Colour stops out of a computed background-image, in order.
+function gradientStops(img) {
+  return (img || '').match(/(?:rgba?|color|oklab|oklch|lab|lch|hsla?)\([^()]*(?:\([^()]*\)[^()]*)*\)|#[0-9a-f]{3,8}/gi) || [];
+}
+
+function seedCustomPalette(force) {
   const hasAny = Object.values(settings.customPalette).some(Boolean);
-  if (hasAny) return;
-  const cs = getComputedStyle(document.body);
-  Object.keys(PALETTE_VARS).forEach(key => {
-    settings.customPalette[key] = cs.getPropertyValue(PALETTE_VARS[key]).trim() || settings.customPalette[key];
+  if (!force && hasAny && settings.customPaletteFrom === paletteSourceKey()) return;
+  
+  const vt = settings.visualTheme;
+  const body = document.body, cs = getComputedStyle(body);
+  const token = k => cssColor(cs.getPropertyValue(PALETTE_VARS[k]).trim());
+  const q = sel => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
+  
+  let bg = token('bg');
+  if (PALETTE_LITERAL.page.includes(vt)) {
+    const solid = cssColor(cs.backgroundColor);
+    bg = solid && solid.a > 0 ? solid : cssColor(gradientStops(cs.backgroundImage)[0]) || bg;
+  }
+  
+  let card = token('card'), border = token('border');
+  const dial = q('.dial');
+  if (dial && PALETTE_LITERAL.dial.includes(vt)) {
+    const solid = cssColor(dial.backgroundColor);
+    const stops = gradientStops(dial.backgroundImage);
+    const face = solid && solid.a > 0 ? solid : cssColor(stops[stops.length - 1]);
+    card = overColor(face, bg) || card;
+    border = overColor(cssColor(dial.borderTopColor), bg) || border;
+  }
+  
+  let text = token('text');
+  const time = q('.time');
+  if (time && PALETTE_LITERAL.text.includes(vt)) {
+    const digit = q('.time .dg');
+    const filled = cssColor(time.color);
+    const stroke = cssColor(time.webkitTextStrokeColor);
+    const clipped = digit && cssColor(gradientStops(digit.backgroundImage)[0]);
+    text = clipped || (filled && filled.a > 0 ? filled : stroke) || text;
+  }
+  
+  let text2 = token('text2');
+  const label = q('.time-label');
+  if (label && PALETTE_LITERAL.label.includes(vt)) text2 = overColor(cssColor(label.color), card) || text2;
+  
+  const seeded = { bg, card, border, text, text2 };
+  Object.keys(PALETTE_VARS).forEach(k => {
+    settings.customPalette[k] = hexColor(seeded[k]) || settings.customPalette[k];
   });
+  settings.customPaletteFrom = paletteSourceKey();
 }
 
 // ========== CUSTOM FONT ==========
@@ -906,7 +1206,17 @@ function renderTopBarOrderList() {
 function updateUI() {
   $('darkToggle').classList.toggle('active', settings.dark);
   $('fsToggle').classList.toggle('active', settings.fullscreen);
+  $('reduceGlowToggle').classList.toggle('active', settings.reduceGlow);
+  $('reduceGlowStatus').textContent = settings.reduceGlow ? 'On' : 'Off';
   $('ringToggle').classList.toggle('active', settings.showRing);
+  // On = that glow is gone, matching Reduce Glow itself. With the master on,
+  // every row shows on and locked, since every glow is gone either way.
+  GLOW_ROWS.forEach(([id, key]) => {
+    const t = $(id);
+    t.classList.toggle('active', settings.reduceGlow || !settings[key]);
+    t.classList.toggle('locked', settings.reduceGlow);
+    t.setAttribute('aria-disabled', settings.reduceGlow ? 'true' : 'false');
+  });
   $('ticksToggle').classList.toggle('active', settings.showTicks);
   $('numeralsToggle').classList.toggle('active', settings.showNumerals);
   $('numeralsDep').classList.toggle('open', settings.showNumerals);
@@ -914,7 +1224,9 @@ function updateUI() {
     b.classList.toggle('is-active', b.dataset.numerals === settings.numeralStyle));
   $('numeralSeg').style.setProperty('--seg-i',
     ['quarters', 'all', 'minutes'].indexOf(settings.numeralStyle));
+  if (document.activeElement !== $('ringLapInput')) $('ringLapInput').value = settings.ringLapMin;
   $('tipsToggle').classList.toggle('active', settings.tips);
+  $('introToggle').classList.toggle('active', settings.intro);
   $('soundToggle').classList.toggle('active', settings.sound);
   $('tickToggle').classList.toggle('active', settings.tick);
   $('confettiToggle').classList.toggle('active', settings.confetti);
@@ -946,14 +1258,20 @@ function updateUI() {
   // — nothing on the main screen needs syncing for either. Subdivision and the
   // sound toggle moved to Settings but kept their element ids, so this part of
   // the sync is unchanged.
-  const mt = settings.metronome;
-  document.querySelectorAll('#metroSubSeg .seg-btn').forEach(b =>
-    b.classList.toggle('is-active', +b.dataset.sub === mt.subdivision));
-  $('metroSoundToggle').classList.toggle('active', mt.distinctSounds);
+  syncMetroSubdivisionUI();
+  $('metroSoundToggle').classList.toggle('active', settings.metronome.distinctSounds);
+  $('metroTimerToggle').classList.toggle('active', settings.metroTimer);
+  paintMetroExport();
+  paintMetroSig();
+  $('metroPresetsToggle').classList.toggle('active', settings.showMetroPresets);
+  // switchMode sets this on entry, but flipping the setting while already
+  // sitting in metronome mode has to reach the rail too — apply() (which
+  // calls updateUI) is the toggle's only other path back to the DOM.
+  $('metroPresets').classList.toggle('hidden', mode !== 'metronome' || !settings.showMetroPresets);
   // The swing has to take exactly one beat, and that duration changes the
   // moment BPM does — a CSS variable lets the keyframe pick it up without the
   // animation needing to be JS-driven frame by frame.
-  $('metroPendulum').style.setProperty('--beat-ms', Math.round(60000 / mt.bpm) + 'ms');
+  $('metroPendulum').style.setProperty('--beat-ms', Math.round(60000 / settings.metronome.bpm) + 'ms');
   document.querySelectorAll('#tzGrid .clock-opt').forEach(o =>
     o.classList.toggle('active', o.dataset.tz === settings.clockTz));
   $('notifToggle').classList.toggle('active', settings.notifications);
@@ -1008,6 +1326,28 @@ function updateUI() {
   $('bgVolVal').textContent = Math.round(settings.bgVolume * 100) + '%';
   $('bgBlurSlider').value = settings.bgBlur;
   $('bgBlurVal').textContent = settings.bgBlur + 'px';
+  $('bgBrightSlider').value = settings.bgBrightness;
+  $('bgBrightVal').textContent = settings.bgBrightness + '%';
+  $('bgContrastSlider').value = settings.bgContrast;
+  $('bgContrastVal').textContent = settings.bgContrast + '%';
+  $('bgSaturateSlider').value = settings.bgSaturate;
+  $('bgSaturateVal').textContent = settings.bgSaturate + '%';
+  $('bgHueSlider').value = settings.bgHue;
+  $('bgHueVal').textContent = settings.bgHue + '°';
+  $('bgGraySlider').value = settings.bgGrayscale;
+  $('bgGrayVal').textContent = settings.bgGrayscale + '%';
+  $('bgSepiaSlider').value = settings.bgSepia;
+  $('bgSepiaVal').textContent = settings.bgSepia + '%';
+  $('bgVignetteSlider').value = settings.bgVignette;
+  $('bgVignetteVal').textContent = settings.bgVignette + '%';
+  $('bgGrainSlider').value = settings.bgGrain;
+  $('bgGrainVal').textContent = settings.bgGrain + '%';
+  $('bgDuotoneToggle').classList.toggle('active', settings.bgDuotone);
+  document.querySelectorAll('#bgFxPresets .chip').forEach(c => c.classList.toggle('active', bgFxMatchesPreset(c.dataset.preset)));
+  const bgFxOn = settings.bgBrightness !== 100 || settings.bgContrast !== 100 || settings.bgSaturate !== 100 ||
+    settings.bgHue !== 0 || settings.bgGrayscale !== 0 || settings.bgSepia !== 0 ||
+    settings.bgVignette !== 0 || settings.bgGrain !== 0 || settings.bgDuotone;
+  $('bgFxStatus').textContent = bgFxOn ? 'On' : 'Off';
   $('goalSlider').value = settings.dailyGoal;
   $('goalVal').textContent = formatGoal(settings.dailyGoal);
   $('goalCap').textContent = 'of ' + formatGoal(settings.dailyGoal) + ' goal';
@@ -1019,7 +1359,13 @@ function updateUI() {
   document.querySelectorAll('.theme-opt').forEach(t => t.classList.toggle('active', t.dataset.theme === settings.visualTheme));
   document.querySelectorAll('.color-opt').forEach(c => c.classList.toggle('active', c.dataset.color === settings.colorTheme));
   document.querySelectorAll('.font-opt').forEach(f => f.classList.toggle('active', f.dataset.font === settings.timeFont));
-  document.querySelectorAll('.sound-opt').forEach(s => s.classList.toggle('active', s.dataset.sound === settings.alertSound));
+  // Scoped to #soundGrid — #metroSoundGrid reuses .sound-opt for the same
+  // chip look but carries metronome click styles, not alert sounds, so a bare
+  // '.sound-opt' sweep would reach into that grid too and immediately
+  // un-highlight whichever one is selected (the same class of bug the
+  // .clock-opt note just below already hit).
+  document.querySelectorAll('#soundGrid .sound-opt').forEach(s => s.classList.toggle('active', s.dataset.sound === settings.alertSound));
+  document.querySelectorAll('#metroSoundGrid .sound-opt').forEach(s => s.classList.toggle('active', s.dataset.sound === settings.metronome.sound));
   // Scoped to #clockGrid. The timezone picker reuses .clock-opt for the same
   // chip look, so a bare '.clock-opt' sweep reaches into that grid too — and
   // since those chips carry data-tz rather than data-city, every one of them
@@ -1038,6 +1384,8 @@ function updateUI() {
   $('motionSeg').style.setProperty('--seg-i', mi);
   document.querySelectorAll('#motionSeg .seg-btn').forEach(s =>
     s.classList.toggle('is-active', s.dataset.motion === settings.motion));
+
+  queuePresetSync();
 
   // ARIA last, so it mirrors the classes every line above just settled.
   if (typeof a11ySync === 'function') a11ySync();
@@ -1113,8 +1461,214 @@ function applyCustomCSS() {
   tag.textContent = settings.customCSS || '';
 }
 
+// ========== SAVED PRESETS ==========
+const cloneVal = v => JSON.parse(JSON.stringify(v));
+
+function snapshotSettings() {
+  const out = {};
+  Object.keys(settings).forEach(k => {
+    if (!PRESET_SKIP.has(k) && settings[k] !== undefined) out[k] = cloneVal(settings[k]);
+  });
+  // Tempo and meter are wherever the dial was last spun to, not a preference —
+  // a preset that dragged the BPM along would retune whatever you were
+  // practising every time you switched looks. Only how it sounds comes with it.
+  const m = settings.metronome;
+  out.metronome = { subdivision: m.subdivision, distinctSounds: m.distinctSounds, sound: m.sound };
+  return out;
+}
+
+// Writes a snapshot over the live settings, then does what each individual
+// control's own handler would have done — apply() alone repaints the panel and
+// the classes, but a running pomodoro, the background layer, the audio gain and
+// the world-clock strip each only hear about a change through their own call.
+function applySnapshot(data) {
+  const prev = { dark: settings.dark, metronome: settings.metronome, keys: settings.keys };
+  Object.keys(data).forEach(k => {
+    if (PRESET_SKIP.has(k) || data[k] === undefined || !Object.prototype.hasOwnProperty.call(settings, k)) return;
+    settings[k] = cloneVal(data[k]);
+  });
+  const dm = data.metronome && typeof data.metronome === 'object' ? data.metronome : {};
+  settings.metronome = Object.assign({}, prev.metronome);
+  ['subdivision', 'distinctSounds', 'sound'].forEach(k => { if (k in dm) settings.metronome[k] = dm[k]; });
+  settings.keys = Object.assign({}, prev.keys, data.keys && typeof data.keys === 'object' ? data.keys : {});
+  sanitiseSettings();
+
+  if (!settings.bgRun) Object.keys(runState).forEach(k => freezeRun(runState[k]));
+  if (!settings.longBreaks && pomoPhase === 'long') pomoPhase = 'short';
+  if (pomoRound > settings.pomo.rounds) pomoRound = settings.pomo.rounds;
+  if (settings.dark !== prev.dark) themeSwap();
+  save();
+  apply();
+  renderColors();
+  applyCustomCSS();
+  applyBgFilters();
+  applyBgAudio();
+  if (ambientGain) ambientGain.gain.value = ambientLevel();
+  updateWorldClocks();
+  syncPomoTime();
+  lastClockLabel = '';
+  renderUntil();
+  if (mode === 'clock') { updateDisplay(); updateRing(); paintClockLabel(); }
+  if (mode === 'metronome') updateMetroLabel();
+}
+
+// One line under the list that says what just happened and, for anything that
+// overwrote something, offers to take it back — in place of a confirm() dialog
+// on every apply, since applying is the whole point and shouldn't cost a click.
+let presetNoteTO = null, presetUndo = null, presetSyncQueued = false;
+function presetNote(msg, undo) {
+  $('presetNoteText').textContent = msg;
+  presetUndo = undo || null;
+  $('presetUndoBtn').hidden = !undo;
+  $('presetNote').hidden = false;
+  clearTimeout(presetNoteTO);
+  presetNoteTO = setTimeout(() => { $('presetNote').hidden = true; presetUndo = null; }, 12000);
+}
+
+function applyPreset(i) {
+  const p = settings.savedPresets[i];
+  if (!p) return;
+  const before = snapshotSettings();
+  applySnapshot(p.data);
+  presetNote('Applied “' + p.name + '”.', () => {
+    applySnapshot(before);
+    presetNote('Back to how it was.');
+  });
+}
+
+function replacePreset(i) {
+  const prev = settings.savedPresets[i];
+  if (!prev) return;
+  settings.savedPresets[i] = { name: prev.name, data: snapshotSettings(), saved: Date.now() };
+  save();
+  renderUserPresets();
+  presetNote('“' + prev.name + '” now holds your current settings.', () => {
+    const j = settings.savedPresets.findIndex(p => p.name === prev.name);
+    if (j > -1) settings.savedPresets[j] = prev;
+    save();
+    renderUserPresets();
+    presetNote('Put “' + prev.name + '” back.');
+  });
+}
+
+function deletePreset(i) {
+  const list = settings.savedPresets;
+  if (!list[i]) return;
+  const gone = list.splice(i, 1)[0];
+  save();
+  renderUserPresets();
+  presetNote('Deleted “' + gone.name + '”.', () => {
+    if (settings.savedPresets.length < MAX_PRESETS) settings.savedPresets.splice(Math.min(i, settings.savedPresets.length), 0, gone);
+    save();
+    renderUserPresets();
+    presetNote('Restored “' + gone.name + '”.');
+  });
+}
+
+function savePreset() {
+  const inp = $('newPresetName');
+  const name = inp.value.trim().slice(0, 40);
+  if (!name) { inp.focus(); return; }
+  const list = settings.savedPresets;
+  // Same name means "update that one" — two rows with one name can't be told
+  // apart in the list or the palette.
+  const i = list.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+  if (i > -1) {
+    replacePreset(i);
+  } else if (list.length >= MAX_PRESETS) {
+    presetNote('That’s the limit of ' + MAX_PRESETS + ' — delete one to make room.');
+    return;
+  } else {
+    list.push({ name, data: snapshotSettings(), saved: Date.now() });
+    save();
+    renderUserPresets();
+    presetNote('Saved “' + name + '”.');
+  }
+  inp.value = '';
+}
+
+function presetMeta(d) {
+  const themeEl = [...document.querySelectorAll('.theme-opt')].find(el => el.dataset.theme === (d.visualTheme || 'default'));
+  const c = colors.find(x => x.n === d.colorTheme);
+  return [
+    themeEl && themeEl.querySelector('.name') ? themeEl.querySelector('.name').textContent : 'Default',
+    c ? c.n[0].toUpperCase() + c.n.slice(1) : 'Custom accent',
+    d.dark === false ? 'Light' : 'Dark'
+  ].join(' · ');
+}
+
+function presetDot(d) {
+  const c = colors.find(x => x.n === d.colorTheme);
+  if (c) return c.h;
+  return /^#[0-9a-f]{3,8}$/i.test(d.customColor || '') ? d.customColor : 'var(--accent)';
+}
+
+function renderUserPresets() {
+  const list = settings.savedPresets;
+  $('userPresetList').innerHTML = list.length
+    ? list.map((p, i) =>
+        '<div class="setting-row upreset" data-i="' + i + '">' +
+        '<button class="upreset-main" data-act="apply" title="Apply this preset">' +
+        '<span class="upreset-dot" style="--c:' + presetDot(p.data) + '"></span>' +
+        '<span class="upreset-text"><span class="upreset-name">' + esc(p.name) + '</span>' +
+        '<span class="upreset-meta">' + esc(presetMeta(p.data)) + '</span></span>' +
+        '<span class="upreset-tag">Active</span></button>' +
+        '<button class="upreset-btn" data-act="update" title="Overwrite with your current settings">Update</button>' +
+        '<button class="quote-del-btn" data-act="delete" aria-label="Delete ' + esc(p.name) + '">✕</button>' +
+        '</div>').join('')
+    : '';
+  syncPresetActive();
+  syncPresetCommands();
+}
+
+// A row reads as active only while every value it holds still matches — one
+// slider nudge and the settings simply stop being that preset, the same rule
+// the Window Effects chips follow. Keys the preset predates are ignored: applying
+// it wouldn't touch them either.
+function syncPresetActive() {
+  const rows = document.querySelectorAll('#userPresetList .upreset');
+  if (!rows.length) return;
+  const cur = snapshotSettings();
+  rows.forEach(row => {
+    const p = settings.savedPresets[+row.dataset.i];
+    const on = !!p && Object.keys(p.data).every(k =>
+      PRESET_SKIP.has(k) || !(k in cur) || JSON.stringify(cur[k]) === JSON.stringify(p.data[k]));
+    row.classList.toggle('active', on);
+    row.querySelector('[data-act="update"]').disabled = on;
+    row.querySelector('.upreset-main').setAttribute('aria-pressed', on);
+  });
+}
+
+// save() fires from every slider drag, so the comparison waits for a frame
+// instead of running once per input event.
+function queuePresetSync() {
+  if (presetSyncQueued) return;
+  presetSyncQueued = true;
+  requestAnimationFrame(() => { presetSyncQueued = false; syncPresetActive(); });
+}
+
+function syncPresetCommands() {
+  COMMANDS = COMMANDS.filter(c => c.cat !== 'My preset');
+  settings.savedPresets.forEach((p, i) => COMMANDS.push({
+    ico: icon('bookmark', 16), name: 'Preset: ' + p.name, cat: 'My preset', run: () => applyPreset(i)
+  }));
+}
+
 // ========== EVENT BINDING ==========
 function bindEvents() {
+  $('savePresetBtn').onclick = savePreset;
+  $('newPresetName').onkeydown = e => { if (e.key === 'Enter') savePreset(); };
+  $('presetUndoBtn').onclick = () => { const fn = presetUndo; presetUndo = null; if (fn) fn(); };
+  $('userPresetList').onclick = e => {
+    const b = e.target.closest('[data-act]');
+    const row = e.target.closest('.upreset');
+    if (!b || !row || b.disabled) return;
+    const i = +row.dataset.i;
+    if (b.dataset.act === 'apply') applyPreset(i);
+    else if (b.dataset.act === 'update') replacePreset(i);
+    else if (b.dataset.act === 'delete') deletePreset(i);
+  };
+
   document.addEventListener('input', e => { if (e.target.classList.contains('slider')) syncSliders(); });
   $('motionSeg').onclick = e => {
     const s = e.target.closest('.seg-btn');
@@ -1130,17 +1684,31 @@ function bindEvents() {
     save(); apply();
   };
 
+  $('ringLapInput').onchange = e => {
+    const n = Math.round(+e.target.value);
+    settings.ringLapMin = e.target.value.trim() === '' || !isFinite(n) ? 60 : clampNum(n, 1, 720);
+    e.target.value = settings.ringLapMin;
+    ringLapIdx = Math.floor(elapsed / stopwatchLap());   // a new length isn't a lap wrap
+    save(); apply(); updateRing();
+  };
+
   // Changing subdivision mid-measure would leave the pulse index referring to
   // a beat that may no longer exist in the new measure shape, so this rewinds
   // to beat one and, if it's playing, restarts the scheduler cleanly on the
   // new shape rather than limping the old index into it.
   $('metroSubSeg').onclick = e => {
     const s = e.target.closest('.seg-btn');
-    if (!s) return;
+    if (!s || s.classList.contains('disabled')) return;
     settings.metronome.subdivision = +s.dataset.sub;
     metroPulseIndex = 0;
     metroMainBeatCount = 0;
     save();
+    // The dial label reads "4/4 · Triplets" — subdivision is half of what it
+    // displays, so changing it has to refresh it. Every other path that moves
+    // the label (BPM changes, presets, entering the mode) already called this;
+    // subdivision was the one that changed the label's content without ever
+    // redrawing it, so the text just sat at whatever it last said.
+    updateMetroLabel();
     apply();
     if (metroRunning) startMetro();
   };
@@ -1160,9 +1728,9 @@ function bindEvents() {
     if (add) {
       const name = prompt('Preset name (e.g. "Practice tempo"):');
       if (!name || !name.trim()) return;
-      const bpmStr = prompt('BPM (30\u2013300):', String(settings.metronome.bpm));
+      const bpmStr = prompt('BPM (20\u2013300):', String(settings.metronome.bpm));
       if (!bpmStr) return;
-      const bpm = Math.round(clampNum(parseFloat(bpmStr) || 120, 30, 300));
+      const bpm = Math.round(clampNum(parseFloat(bpmStr) || 120, 20, 300));
       const sigStr = prompt('Time signature (e.g. 4/4):',
         settings.metronome.num + '/' + settings.metronome.den);
       if (!sigStr) return;
@@ -1221,6 +1789,7 @@ function bindEvents() {
     closeAllPanels();
     $('settingsPanel').classList.add('active');
     $('settingsOverlay').classList.add('active');
+    paintMetroExport();   // the tempo may have moved on the dial since
     openModal($('settingsPanel'), $('closeSettings'));
     a11ySync();
   };
@@ -1268,10 +1837,32 @@ function bindEvents() {
     save();
     apply();
   };
+  // Lives inside glowSel's .sel-head, whose own onclick opens/shuts the
+  // disclosure on any click landing in it — stopPropagation keeps a tap on
+  // the switch itself from also toggling that open, the way tog() alone
+  // would let happen since a plain button click bubbles up to its parent.
+  $('reduceGlowToggle').onclick = e => {
+    e.stopPropagation();
+    settings.reduceGlow = !settings.reduceGlow;
+    save();
+    apply();
+  };
   tog('ringToggle', 'showRing');
+  // Same flip as tog(), but refused while Reduce Glow has them all locked on —
+  // otherwise a tap would change a setting with nothing on screen showing it.
+  GLOW_ROWS.forEach(([id, key]) => {
+    $(id).onclick = () => {
+      if (settings.reduceGlow) return;
+      settings[key] = !settings[key];
+      save();
+      apply();
+    };
+  });
   tog('ticksToggle', 'showTicks');
+  tog('metroPresetsToggle', 'showMetroPresets');
   tog('numeralsToggle', 'showNumerals');
   tog('tipsToggle', 'tips');
+  tog('introToggle', 'intro');
   tog('soundToggle', 'sound');
   tog('tickToggle', 'tick');
   tog('confettiToggle', 'confetti');
@@ -1292,6 +1883,7 @@ function bindEvents() {
       save();
       updateUI();
       updateWorldClocks();
+      renderUntil();
       if (mode === 'clock') { updateDisplay(); updateRing(); }
     };
   };
@@ -1408,6 +2000,15 @@ function bindEvents() {
     const o = e.target.closest('.sound-opt');
     if (o) { settings.alertSound = o.dataset.sound; save(); updateUI(); if (o.dataset.sound !== 'none') playAlert(); }
   };
+  $('metroSoundGrid').onclick = e => {
+    const o = e.target.closest('.sound-opt');
+    if (!o) return;
+    if (o.dataset.sound === 'custom' && !metroCustomBuf) { $('metroSoundFile').click(); return; }
+    settings.metronome.sound = o.dataset.sound;
+    save();
+    updateUI();
+    metroClick('beat', actx().currentTime + 0.02);   // preview the pick immediately
+  };
   $('fontGrid').onclick = e => {
     const o = e.target.closest('.font-opt');
     if (o) { settings.timeFont = o.dataset.font; save(); apply(); }
@@ -1425,11 +2026,16 @@ function bindEvents() {
   };
   $('customPaletteToggle').onclick = () => {
     settings.useCustomPalette = !settings.useCustomPalette;
-    if (settings.useCustomPalette) seedCustomPaletteIfEmpty();
+    // Read before apply(): the theme is still painting its own colours.
+    if (settings.useCustomPalette) seedCustomPalette();
     save(); apply();
   };
   const paletteInput = (id, key) => {
-    $(id).oninput = e => { settings.customPalette[key] = e.target.value; save(); apply(); };
+    $(id).oninput = e => {
+      settings.customPalette[key] = e.target.value;
+      settings.customPaletteFrom = paletteSourceKey();
+      save(); apply();
+    };
   };
   paletteInput('paletteBgPicker', 'bg');
   paletteInput('paletteCardPicker', 'card');
@@ -1543,12 +2149,13 @@ function bindEvents() {
         // no shape checking. This is the one field in that merge malformed
         // enough to throw on render rather than just look wrong, so it gets
         // the same guard load() runs on startup.
-        sanitiseMetroPresets();
+        sanitiseSettings();
         save();
         apply();
         renderColors();
         renderClocks();
         renderQuotes();
+        renderUserPresets();
         applyCustomCSS();
         updateStats();
         updateGoal();
@@ -1584,8 +2191,14 @@ function bindEvents() {
 
   // Reset all
   $('resetAllBtn').onclick = () => {
-    if (!confirm('Reset all?')) return;
-    try { localStorage.clear(); } catch (e) {}
+    if (!confirm('Reset Chronos to its defaults? Session history is cleared too; your saved presets are kept.')) return;
+    // Presets are the way back from a reset, so they're the one thing carried
+    // over. load() fills every other setting from its default around them.
+    const keep = settings.savedPresets;
+    try {
+      localStorage.clear();
+      localStorage.setItem('chronos_s', JSON.stringify({ savedPresets: keep }));
+    } catch (e) {}
     clearBg();
     location.reload();
   };
@@ -1726,6 +2339,40 @@ function bindEvents() {
     const m = $('bgMedia').firstElementChild;
     if (m && m.tagName === 'VIDEO') $('bgBlurNote').style.display = settings.bgBlur > 14 ? '' : 'none';
   };
+
+  // Window Effects — each slider just writes its one setting, reapplies the
+  // filter stack, and re-syncs the preset chips (a hand-tuned slider no
+  // longer matches whichever preset it came from).
+  const bgFxSlider = (id, key, valId, suffix, round) => {
+    $(id).oninput = e => {
+      settings[key] = round ? Math.round(+e.target.value) : +e.target.value;
+      $(valId).textContent = settings[key] + suffix;
+      applyBgFilters();
+      document.querySelectorAll('#bgFxPresets .chip').forEach(c => c.classList.toggle('active', bgFxMatchesPreset(c.dataset.preset)));
+      $('bgFxStatus').textContent = 'On';
+      save();
+    };
+  };
+  bgFxSlider('bgBrightSlider', 'bgBrightness', 'bgBrightVal', '%', true);
+  bgFxSlider('bgContrastSlider', 'bgContrast', 'bgContrastVal', '%', true);
+  bgFxSlider('bgSaturateSlider', 'bgSaturate', 'bgSaturateVal', '%', true);
+  bgFxSlider('bgHueSlider', 'bgHue', 'bgHueVal', '°', true);
+  bgFxSlider('bgGraySlider', 'bgGrayscale', 'bgGrayVal', '%', true);
+  bgFxSlider('bgSepiaSlider', 'bgSepia', 'bgSepiaVal', '%', true);
+  bgFxSlider('bgVignetteSlider', 'bgVignette', 'bgVignetteVal', '%', true);
+  bgFxSlider('bgGrainSlider', 'bgGrain', 'bgGrainVal', '%', true);
+
+  $('bgDuotoneToggle').onclick = () => {
+    settings.bgDuotone = !settings.bgDuotone;
+    applyBgFilters(); updateUI(); save();
+  };
+
+  $('bgFxPresets').onclick = e => {
+    const c = e.target.closest('.chip');
+    if (c) applyBgFxPreset(c.dataset.preset);
+  };
+
+  $('bgFxResetBtn').onclick = () => applyBgFxPreset('default');
   
   initSections();
   buildKeysList();
@@ -1740,8 +2387,29 @@ function bindEvents() {
     if (mode === 'clock') tickClock();
   });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(moveTab);
-  
+  // The calls above only re-measure at fixed moments, but a tab's width keeps
+  // changing after them: a theme's own webfont arriving late, its padding
+  // animating in, a breakpoint landing mid-resize. Each left the pill stranded
+  // where the tab used to be (Gnomon by 50px). Watching the tabs themselves
+  // catches every one of those, whatever caused it. Border-box on the row so
+  // a padding-only change still counts; one moveTab per frame however many
+  // tabs changed at once.
+  if (window.ResizeObserver) {
+    let tabRaf = 0;
+    const tabRO = new ResizeObserver(() => {
+      cancelAnimationFrame(tabRaf);
+      tabRaf = requestAnimationFrame(moveTab);
+    });
+    tabRO.observe($('modeTabs'), { box: 'border-box' });
+    document.querySelectorAll('.mode-tab').forEach(t => tabRO.observe(t, { box: 'border-box' }));
+  }
+
   setupDial();
+  setupUntil();
+  setupMetroExport();
+  setupMetroSig();
+  setupMetroTimer();
+  setupMetroCustom();
 }
 
 // ========== TIMER CORE ==========
@@ -1754,6 +2422,7 @@ function toggleFS() {
 function setFS(on) {
   if (on === settings.fullscreen) return;
   if (!on && !RM) return exitFS();
+  if (on && !RM) return enterFS();
   settings.fullscreen = on;
   save();
   apply();
@@ -1769,6 +2438,62 @@ function setFS(on) {
 // to a transform; the wrap is then pushed back to where the dial was on screen
 // and released to identity. Chrome fades in behind it.
 let fsOutTO = null;
+
+// Entering had the same teleport in the other direction: .main jumps into
+// position:fixed and the dial's centre lands mid-screen on frame one, while
+// its width/height and the readout's font-size transition smoothly from there.
+// Only the position needs handing to a transform — the dial's centre stays put
+// for the whole size transition (.main is centred on itself, and everything
+// below the dial keeps its size), so a translate-only FLIP lines up with the
+// growth the CSS is already doing.
+//
+// The top bar, mode tabs and everything under the dial (the play/lap/reset
+// row, Pomodoro's +5/Skip) ride along: they get the same translate so they
+// leave from where they were instead of teleporting with .main on frame one.
+// The row under the dial also drifts down in layout as the dial grows; that's
+// on the same curve, so the sum is still one smooth path.
+function enterFS() {
+  const dial = $('dial');
+  const movers = [
+    { el: document.querySelector('.dial-wrap'), box: dial },
+    { el: $('modeTabs') },
+    { el: document.querySelector('.top-bar') },
+    { el: document.querySelector('.controls') },
+    { el: $('pomoActions') }
+  ].filter((m, i) => i === 0 || (m.el && m.el.getClientRects().length));
+  movers.forEach(m => { m.before = (m.box || m.el).getBoundingClientRect(); });
+
+  clearTimeout(fsOutTO);
+  document.body.classList.remove('fs-out');
+  settings.fullscreen = true;
+  save();
+  apply();
+
+  const t4 = parseFloat(getComputedStyle(document.body).getPropertyValue('--t4')) * 1000 || 700;
+  const wrap = movers[0].el;
+  movers.forEach(m => {
+    const a = (m.box || m.el).getBoundingClientRect(), b = m.before;
+    const dx = (b.left + b.width / 2) - (a.left + a.width / 2);
+    const dy = (b.top + b.height / 2) - (a.top + a.height / 2);
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    const from = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px)';
+    if (m.box) {
+      wrap.style.transition = 'none';
+      wrap.style.transform = from;
+    } else {
+      // WAAPI rather than an inline transition: resetting `transition` here
+      // would cancel the chrome's CSS opacity fade that apply() just started.
+      m.el.animate([{ transform: from }, { transform: 'none' }],
+        { duration: t4, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' });
+    }
+  });
+  void wrap.offsetWidth;
+  wrap.style.transition = 'transform var(--t4) var(--ease)';
+  wrap.style.transform = '';
+
+  fsOutTO = setTimeout(() => { wrap.style.transition = ''; }, 800);
+}
+
 function exitFS() {
   const dial = $('dial'), wrap = document.querySelector('.dial-wrap');
   const before = dial.getBoundingClientRect();
@@ -1778,13 +2503,17 @@ function exitFS() {
   apply();
   document.body.classList.add('fs-out');   // after apply(), which rebuilds className
   
+  // Measured while the dial is still at its fullscreen size (its width/height
+  // transition has only just started), so this is the offset of the centre
+  // alone. In flow the dial's top edge is pinned under the tabs, so as it
+  // shrinks its centre rises by half the size change — on the same duration
+  // and curve as this translate, which together land it exactly on its spot.
   const after = dial.getBoundingClientRect();
   const dx = (before.left + before.width / 2) - (after.left + after.width / 2);
   const dy = (before.top + before.height / 2) - (after.top + after.height / 2);
-  const sc = after.width ? before.width / after.width : 1;
   
   wrap.style.transition = 'none';
-  wrap.style.transform = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px) scale(' + sc.toFixed(4) + ')';
+  wrap.style.transform = 'translate(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px)';
   void wrap.offsetWidth;
   wrap.style.transition = '';
   wrap.style.transform = '';
@@ -1829,7 +2558,8 @@ function switchMode(m) {
   $('presets').classList.toggle('hidden', m !== 'timer');
   $('pomoInfo').classList.toggle('show', m === 'pomodoro');
   $('pomoActions').classList.toggle('show', m === 'pomodoro');
-  $('metroPresets').classList.toggle('hidden', m !== 'metronome');
+  $('metroPresets').classList.toggle('hidden', m !== 'metronome' || !settings.showMetroPresets);
+  $('metroTempoName').classList.toggle('hidden', m !== 'metronome');
   lastClockLabel = '';   // force the label back to a mode name / a fresh date
   
   const r = $('ringProgress');
@@ -1988,6 +2718,7 @@ function setClockTz(tz, show) {
   lastClockLabel = '';
   if (show) switchMode('clock');
   else if (mode === 'clock') { updateDisplay(); updateRing(); paintClockLabel(); }
+  paintUntil();
 }
 
 function tickClock() {
@@ -1999,6 +2730,7 @@ function tickClock() {
   if (s === lastClockSec) return;
   lastClockSec = s;
   paintClockLabel();
+  paintUntil();
 }
 
 // With a zone picked, the city has to be on screen — otherwise a face reading
@@ -2012,6 +2744,134 @@ function paintClockLabel() {
   if (label === lastClockLabel) return;
   lastClockLabel = label;
   $('timeLabel').textContent = label;
+}
+
+// ---------- Time until ----------
+// The "how long until 10pm" search, answered on the face itself. Targets are
+// wall times, read in whatever zone the dial is showing — "until 10pm" with
+// Tokyo picked means 10pm in Tokyo, since that's the clock you're looking at.
+
+// Forgiving on purpose: this is typed the way you'd type it into a search box.
+// 10pm, 10 pm, 10p, 10:30pm, 10.30, 22, 22:30, 2230, noon, midnight.
+// A bare 1–12 with no am/pm means whichever of the two comes round first.
+function parseUntil(str) {
+  const s = String(str).trim().toLowerCase().replace(/\s+/g, '');
+  if (s === 'noon' || s === 'midday') return 720;
+  if (s === 'midnight') return 0;
+  const m = s.match(/^(\d{1,2})(?:[:.h]?(\d{2}))?(am?|pm?)?$/);
+  if (!m) return null;
+  let h = +m[1];
+  const min = m[2] ? +m[2] : 0, mer = m[3];
+  if (min > 59) return null;
+  if (mer) {
+    if (h < 1 || h > 12) return null;
+    h = h % 12 + (mer[0] === 'p' ? 12 : 0);
+    return h * 60 + min;
+  }
+  if (h > 23) return null;
+  // "08" or "08:00" is someone writing 24-hour time — take it literally.
+  if (h >= 1 && h <= 12 && m[1][0] !== '0') {
+    const now = tzTime(new Date()), n = now.h * 60 + now.m;
+    const a = h % 12 * 60 + min, b = a + 720;
+    return ((a - n + 1440) % 1440) <= ((b - n + 1440) % 1440) ? a : b;
+  }
+  return h * 60 + min;
+}
+
+function untilLabel(t) {
+  const h = Math.floor(t / 60), m = t % 60;
+  if (!settings.hour12) return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  const hh = h % 12 || 12, mer = h < 12 ? 'AM' : 'PM';
+  if (t === 0) return 'Midnight';
+  if (t === 720) return 'Noon';
+  return hh + (m ? ':' + String(m).padStart(2, '0') : '') + ' ' + mer;
+}
+
+// Seconds from now to the next time the zone's clock reads target. Within the
+// first minute after it, the answer is "now" rather than "23h 59m".
+function untilSecs(t) {
+  const n = tzTime(new Date());
+  return ((t * 60 - (n.h * 3600 + n.m * 60 + n.s)) % 86400 + 86400) % 86400;
+}
+
+function untilText(sec) {
+  if (sec > 86400 - 60) return { short: 'Now', long: 'now' };
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  const pl = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  if (h) {
+    // Whole minutes still to go, rounded up — at 21:59:30, "until 22:00" is 1m.
+    const mu = Math.ceil(sec % 3600 / 60);
+    const hh = h + (mu === 60 ? 1 : 0), mm = mu % 60;
+    return { short: hh + 'h ' + String(mm).padStart(2, '0') + 'm',
+      long: pl(hh, 'hour') + (mm ? ' ' + pl(mm, 'minute') : '') };
+  }
+  return { short: m + 'm ' + String(s).padStart(2, '0') + 's',
+    long: (m ? pl(m, 'minute') + ' ' : '') + pl(s, 'second') };
+}
+
+// Rows are built once per change to the list and only their numbers are
+// rewritten each second, so a hover on the remove button survives the tick.
+function renderUntil() {
+  const list = $('untilList');
+  list.innerHTML = settings.untilTargets.map(t =>
+    '<div class="until-row" data-t="' + t + '">' +
+      '<div class="until-val"></div>' +
+      '<div class="until-lbl">until ' + esc(untilLabel(t)) + '</div>' +
+      '<button class="until-x" type="button" aria-label="Remove ' + esc(untilLabel(t)) + '" title="Remove">×</button>' +
+    '</div>').join('');
+  $('untilBox').classList.toggle('has-rows', settings.untilTargets.length > 0);
+  $('untilInput').placeholder = settings.untilTargets.length >= UNTIL_MAX
+    ? 'Remove one to add another' : 'Time until… e.g. ' + (settings.hour12 ? '10pm' : '22:00');
+  $('untilInput').disabled = settings.untilTargets.length >= UNTIL_MAX;
+  paintUntil();
+}
+
+function paintUntil() {
+  $('untilList').querySelectorAll('.until-row').forEach(r => {
+    const t = +r.dataset.t, txt = untilText(untilSecs(t));
+    const v = r.firstChild;
+    if (v.textContent !== txt.short) v.textContent = txt.short;
+    r.classList.toggle('now', txt.short === 'Now');
+    r.setAttribute('aria-label', txt.long === 'now' ? untilLabel(t) + ' is now' : txt.long + ' until ' + untilLabel(t));
+  });
+}
+
+function addUntil(str) {
+  const t = parseUntil(str);
+  if (t === null) return false;
+  const i = settings.untilTargets.indexOf(t);
+  if (i >= 0) settings.untilTargets.splice(i, 1);
+  else if (settings.untilTargets.length >= UNTIL_MAX) return false;
+  // Newest first: the one just asked about is the one you want to read.
+  settings.untilTargets.unshift(t);
+  save();
+  renderUntil();
+  return true;
+}
+
+function setupUntil() {
+  const inp = $('untilInput');
+  $('untilForm').onsubmit = e => {
+    e.preventDefault();
+    if (!inp.value.trim()) return;
+    if (addUntil(inp.value)) { inp.value = ''; inp.classList.remove('bad'); return; }
+    inp.classList.remove('bad');
+    void inp.offsetWidth;   // restart the shake
+    inp.classList.add('bad');
+  };
+  inp.addEventListener('input', () => inp.classList.remove('bad'));
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { inp.value = ''; inp.blur(); }
+  });
+  $('untilList').onclick = e => {
+    const x = e.target.closest('.until-x');
+    if (!x) return;
+    const t = +x.closest('.until-row').dataset.t;
+    settings.untilTargets = settings.untilTargets.filter(v => v !== t);
+    save();
+    renderUntil();
+  };
+  renderUntil();
 }
 
 // ========== METRONOME ==========
@@ -2065,23 +2925,625 @@ function metroSecondsPerPulse() {
   return 60 / settings.metronome.bpm / settings.metronome.subdivision;
 }
 
-function metroClick(tier, when) {
-  const ctx = actx();
+// Distinguishable rhythmic clicks top out somewhere around 10-12Hz for most
+// people — faster than that and discrete ticks stop being countable and blur
+// into a continuous buzz, which isn't "extra clicks between the beat"
+// anymore, it's just noise. At 300 BPM a 4x subdivision is 20Hz. Rather than
+// silently allow a combination that no longer functions as a metronome, or
+// cap BPM itself (300 straight quarters is a perfectly normal fast tempo —
+// it's only subdivision that multiplies it into the unusable range), the
+// highest subdivision that stays under the ceiling is computed from whatever
+// BPM is current, and both the UI and the settings themselves are kept
+// inside it.
+const METRO_MAX_HZ = 12;
+function maxMetroSubdivision(bpm) {
+  for (let s = 4; s > 1; s--) if ((bpm / 60) * s <= METRO_MAX_HZ) return s;
+  return 1;
+}
+
+// Called after every place BPM changes. If the subdivision that was fine a
+// moment ago no longer is at the new tempo, this drops it to the fastest one
+// that's still usable — the same way a real instrument's settings constrain
+// each other rather than letting you dial in a combination that doesn't work.
+// Just the subdivision seg-btn's active/disabled state — five DOM writes, not
+// the couple hundred apply() touches on its way to the same four buttons.
+// This is what a drag can actually afford to call on every pointermove;
+// apply() very much isn't (see the note at each of its call sites).
+function syncMetroSubdivisionUI() {
+  const maxSub = maxMetroSubdivision(settings.metronome.bpm);
+  document.querySelectorAll('#metroSubSeg .seg-btn').forEach(b => {
+    b.classList.toggle('is-active', +b.dataset.sub === settings.metronome.subdivision);
+    const disabled = +b.dataset.sub > maxSub;
+    b.classList.toggle('disabled', disabled);
+    b.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  });
+}
+
+function clampMetroSubdivision() {
+  const max = maxMetroSubdivision(settings.metronome.bpm);
+  if (settings.metronome.subdivision > max) settings.metronome.subdivision = max;
+}
+
+// Each style keeps the existing three-tier contract (accent louder and
+// brighter, beat the baseline, sub softer and lower) — only the waveform,
+// base frequencies, and envelope length change, so "Distinct beat sounds"
+// keeps working identically no matter which one is picked. Click's numbers
+// are the original (only) sound this app had, kept exactly so nobody's
+// existing metronome changes tone under them.
+const METRO_SOUND_STYLES = ['click', 'wood', 'beep', 'cowbell', 'digital', 'rimshot', 'custom'];
+const METRO_SOUNDS = {
+  click:   { type: 'sine',     freqs: [1600, 1000, 700],  decay: 0.05 },
+  wood:    { type: 'triangle', freqs: [1500, 1100, 850],  decay: 0.035 },
+  beep:    { type: 'square',   freqs: [1200, 880, 660],   decay: 0.09 },
+  digital: { type: 'sine',     freqs: [2000, 1400, 1000], decay: 0.04 }
+};
+const METRO_TIER_PEAK = { accent: 0.7, beat: 0.5, sub: 0.26 };
+const METRO_TIER_INDEX = { accent: 0, beat: 1, sub: 2 };
+// A custom sample has one pitch, so its tiers are the same sample re-pitched:
+// +4 and -3 semitones, the same "higher on one, lower between" the built-ins do.
+const METRO_TIER_PITCH = { accent: 1.26, beat: 1, sub: 0.84 };
+
+// ctx and vol are for the audio export, which plays these exact voices into an
+// OfflineAudioContext at full volume. Live playback passes neither.
+function metroClick(tier, when, ctx, vol) {
+  const distinct = settings.metronome.distinctSounds;
+  const peak = (!distinct ? 0.5 : METRO_TIER_PEAK[tier]) * (vol == null ? settings.volume : vol);
+  ctx = ctx || actx();
+  const snd = settings.metronome.sound;
+
+  if (snd === 'custom' && metroCustomBuf) { metroCustom(when, peak, ctx, distinct ? tier : 'beat'); return; }
+  if (snd === 'cowbell') { metroCowbell(when, peak, ctx); return; }
+  if (snd === 'rimshot') { metroRimshot(when, peak, ctx); return; }
+
+  // 'custom' with nothing loaded (a preset from another device, a cleared
+  // store) lands here and plays the plain click rather than silence.
   const o = ctx.createOscillator(), g = ctx.createGain();
   o.connect(g); g.connect(ctx.destination);
-  const distinct = settings.metronome.distinctSounds;
-  const freq = !distinct ? 1000 : tier === 'accent' ? 1600 : tier === 'beat' ? 1000 : 700;
-  const peak = (!distinct ? 0.5 : tier === 'accent' ? 0.7 : tier === 'beat' ? 0.5 : 0.26) * settings.volume;
-  o.type = 'sine';
+  const style = METRO_SOUNDS[snd] || METRO_SOUNDS.click;
+  const freq = !distinct ? style.freqs[1] : style.freqs[METRO_TIER_INDEX[tier]];
+  o.type = style.type;
   o.frequency.setValueAtTime(freq, when);
   // A short, percussive envelope: long enough to read as a click, short
   // enough not to smear into the next pulse at a fast tempo. Ramping from a
   // near-zero floor rather than 0 avoids the log(0) exponential-ramp error.
   g.gain.setValueAtTime(0.0001, when);
   g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0001), when + 0.002);
-  g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + style.decay);
   o.start(when);
-  o.stop(when + 0.06);
+  o.stop(when + style.decay + 0.01);
+}
+
+// A real cowbell is two detuned square-wave partials (roughly a fifth apart)
+// ringing together — one oscillator can't produce that beat/clang, so this
+// is the one style that doesn't fit the shared table above.
+function metroCowbell(when, peak, ctx) {
+  [587, 845].forEach(f => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'square';
+    o.frequency.setValueAtTime(f, when);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak * 0.6, 0.0001), when + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.15);
+    o.start(when);
+    o.stop(when + 0.16);
+  });
+}
+
+// A rimshot's crack is noise, not a pitch — none of the oscillator waveforms
+// above can fake that, so this is the one style built from a burst of random
+// samples instead. Band-passed around 2.5kHz so it reads as a stick hitting
+// rim rather than an unshaped hiss.
+function metroRimshot(when, peak, ctx) {
+  const dur = 0.045;
+  const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = 2500;
+  bp.Q.value = 1.1;
+  const g = ctx.createGain();
+  src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+  g.gain.setValueAtTime(Math.max(peak, 0.0001), when);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  src.start(when);
+  src.stop(when + dur + 0.01);
+}
+
+// The user's own sample. Tiers are the same sample re-pitched, which keeps
+// the accent unmistakable without asking anyone to supply three files.
+function metroCustom(when, peak, ctx, t) {
+  const src = ctx.createBufferSource(), g = ctx.createGain();
+  src.buffer = metroCustomBuf;
+  src.playbackRate.value = METRO_TIER_PITCH[t];
+  g.gain.value = peak * 1.1;   // samples are normalised to full scale on load
+  src.connect(g); g.connect(ctx.destination);
+  src.start(when);
+}
+
+// ---------- Custom click sound ----------
+// Stored beside the background file in the same IndexedDB store, under its own
+// key, so it survives reloads without going anywhere near localStorage's quota.
+const METRO_CUSTOM_MAX = 1.5;          // seconds kept from the start of the file
+const METRO_CUSTOM_FILE_MAX = 10485760;
+let metroCustomBuf = null, metroCustomName = '';
+
+function idbFile(key, rec) {
+  return bgDB().then(db => new Promise((res, rej) => {
+    const tx = db.transaction('files', rec === undefined ? 'readonly' : 'readwrite');
+    const st = tx.objectStore('files');
+    let rq = null;
+    if (rec === undefined) rq = st.get(key);
+    else if (rec === null) st.delete(key);
+    else st.put(rec, key);
+    tx.oncomplete = () => res(rq ? rq.result || null : null);
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error);
+  }));
+}
+
+// A click has to start on the beat, so leading silence is cut (most exported
+// samples carry some), the file is mixed to mono and normalised, and anything
+// past METRO_CUSTOM_MAX is faded off — a metronome sample is a hit, not a song.
+async function decodeMetroSound(blob) {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const raw = await new OAC(1, 1, 44100).decodeAudioData(await blob.arrayBuffer());
+  const n = raw.length, chs = raw.numberOfChannels, rate = raw.sampleRate;
+  const mono = new Float32Array(n);
+  for (let c = 0; c < chs; c++) {
+    const d = raw.getChannelData(c);
+    for (let i = 0; i < n; i++) mono[i] += d[i] / chs;
+  }
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(mono[i]));
+  if (peak < 1e-4) throw new Error('silent');
+  let start = 0;
+  while (start < n && Math.abs(mono[start]) < peak * 0.02) start++;
+  start = Math.max(0, start - Math.round(rate * 0.001));
+  const len = Math.max(1, Math.min(n - start, Math.round(rate * METRO_CUSTOM_MAX)));
+  const buf = new AudioBuffer({ length: len, numberOfChannels: 1, sampleRate: rate });
+  const out = buf.getChannelData(0), fade = Math.min(len, Math.round(rate * 0.02));
+  for (let i = 0; i < len; i++) out[i] = mono[start + i] / peak * (i >= len - fade ? (len - i) / fade : 1);
+  buf.trimmed = n - start > len;
+  return buf;
+}
+
+function paintMetroCustom(msg) {
+  const has = !!metroCustomBuf;
+  $('metroCustomRow').hidden = !has;
+  if (has) $('metroCustomName').textContent = metroCustomName + ' · ' + metroCustomBuf.duration.toFixed(2) + 's';
+  $('metroCustomNote').hidden = !msg;
+  $('metroCustomNote').textContent = msg || '';
+  const opt = document.querySelector('#metroSoundGrid [data-sound="custom"]');
+  if (opt) opt.textContent = has ? '🎵 ' + metroCustomName : '🎵 Your Own Sound…';
+}
+
+async function loadMetroSound() {
+  try {
+    const rec = await idbFile('metroSound');
+    if (rec && rec.blob) {
+      metroCustomBuf = await decodeMetroSound(rec.blob);
+      metroCustomName = rec.name || 'Custom';
+    }
+  } catch (e) { metroCustomBuf = null; }
+  paintMetroCustom();
+  paintMetroExport();
+}
+
+function setupMetroCustom() {
+  const file = $('metroSoundFile');
+  file.onchange = async () => {
+    const f = file.files && file.files[0];
+    file.value = '';
+    if (!f) return;
+    if (f.size > METRO_CUSTOM_FILE_MAX) { paintMetroCustom('That file is over 10 MB — a click only needs a second or so.'); return; }
+    paintMetroCustom('Loading ' + f.name + '…');
+    let buf;
+    try { buf = await decodeMetroSound(f); }
+    catch (e) { paintMetroCustom('Could not read that as audio. Try a WAV, MP3, OGG or M4A.'); return; }
+    const name = f.name.replace(/\.[^.]+$/, '').slice(0, 28) || 'Custom';
+    metroCustomBuf = buf;
+    metroCustomName = name;
+    settings.metronome.sound = 'custom';
+    save();
+    updateUI();
+    let note = '';
+    try { await idbFile('metroSound', { blob: f, name, type: f.type, size: f.size }); }
+    catch (e) { note = 'Playing, but this browser won’t keep it after a reload.'; }
+    paintMetroCustom(note || (buf.trimmed ? 'Only the first 1.5 seconds are used.' : ''));
+    metroClick('accent', actx().currentTime + 0.02);
+  };
+  $('metroCustomReplace').onclick = () => file.click();
+  $('metroCustomRemove').onclick = async () => {
+    metroCustomBuf = null;
+    metroCustomName = '';
+    if (settings.metronome.sound === 'custom') settings.metronome.sound = 'click';
+    save();
+    updateUI();
+    try { await idbFile('metroSound', null); } catch (e) {}
+    paintMetroCustom();
+  };
+  loadMetroSound();
+}
+
+// ---------- Practice timer ----------
+// Stops the metronome by itself after a set time. The end is booked on the
+// audio clock, the same clock the clicks are, so the last click is exactly the
+// last one before the time is up rather than whatever a throttled setInterval
+// happened to let through. Counted from when Start was pressed — a meter change
+// mid-run restarts the scheduler but not the practice clock.
+const METRO_TIMER_MAX = 10800;
+let metroRunStartCtx = 0;
+
+function metroTimerEnd() {
+  return settings.metroTimer ? metroRunStartCtx + settings.metroTimerSecs : Infinity;
+}
+
+function fmtClockSecs(s) {
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
+}
+
+// Read-only: the tempo name under the BPM gains "· 0:43 left" while a timed run
+// is going. The controls themselves live in Settings.
+function paintMetroTempoLine() {
+  if (mode !== 'metronome') return;
+  let txt = tempoName(settings.metronome.bpm);
+  if (metroRunning && settings.metroTimer && ambientCtx) {
+    // -0.1 swallows the 50ms lead-in before the first click, which would
+    // otherwise open a 3-second timer on "0:04".
+    txt += ' · ' + fmtClockSecs(Math.max(0, Math.ceil(metroTimerEnd() - ambientCtx.currentTime - 0.1))) + ' left';
+  }
+  const el = $('metroTempoName');
+  if (el.textContent !== txt) el.textContent = txt;
+}
+
+function finishMetroTimer() {
+  stopMetroRun('Practice timer done');
+  playAlert();
+}
+
+function paintMetroTimer() {
+  const secs = readDur('metroTimer');
+  const ok = secs !== null && secs > 0 && secs <= METRO_TIMER_MAX;
+  durFields('metroTimer').forEach(([id]) => $(id).classList.toggle('bad', !ok));
+  $('metroTimerInfo').textContent = ok
+    ? 'Stops after ' + fmtLen(secs) + (settings.alertSound === 'none' ? '.' : ', then plays your alert sound.')
+    : secs > METRO_TIMER_MAX ? 'The longest is 3 hours.' : secs === 0 ? 'Set a time above zero.' : 'Whole numbers only.';
+  if (ok && secs !== settings.metroTimerSecs) { settings.metroTimerSecs = secs; save(); }
+}
+
+function setupMetroTimer() {
+  $('metroTimerToggle').onclick = () => {
+    settings.metroTimer = !settings.metroTimer;
+    // Switched on mid-run, it counts from now — not from a Start long enough
+    // ago that the run would end the instant the toggle was flipped.
+    if (settings.metroTimer && metroRunning) metroRunStartCtx = actx().currentTime;
+    save();
+    apply();
+    paintMetroTempoLine();
+  };
+  writeDur('metroTimer', settings.metroTimerSecs);
+  wireDur('metroTimer', METRO_TIMER_MAX, paintMetroTimer, () => document.activeElement.blur());
+  paintMetroTimer();
+}
+
+// ---------- Time signature ----------
+// Shared by the Settings rows and the picker under the dial. Changing meter
+// mid-bar would leave the pulse index pointing at a beat the new bar may not
+// have, so it rewinds to beat one and restarts a running click on the new shape.
+const METRO_SIG_COMMON = [[2, 4], [3, 4], [4, 4], [5, 4], [6, 8], [7, 8], [9, 8], [12, 8]];
+const METRO_DEN_NAMES = { 2: 'half note', 4: 'quarter note', 8: 'eighth note', 16: 'sixteenth note' };
+
+function setMetroSignature(num, den) {
+  num = Math.max(1, Math.min(16, Math.round(num)));
+  if (![2, 4, 8, 16].includes(den)) den = settings.metronome.den;
+  if (num === settings.metronome.num && den === settings.metronome.den) return;
+  settings.metronome.num = num;
+  settings.metronome.den = den;
+  metroPulseIndex = 0;
+  metroMainBeatCount = 0;
+  save();
+  updateMetroLabel();
+  paintMetroSig();
+  paintMetroExport();
+  a11yDial();
+  if (metroRunning) startMetro();
+}
+
+function paintMetroSig() {
+  const m = settings.metronome;
+  $('metroNumVal').textContent = m.num;
+  $('metroNumDown').disabled = m.num <= 1;
+  $('metroNumUp').disabled = m.num >= 16;
+  document.querySelectorAll('#metroBeatNoteSeg .seg-btn').forEach(b => {
+    const on = +b.dataset.den === m.den;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#sigPop .sig-opt').forEach(b =>
+    b.classList.toggle('active', b.dataset.sig === m.num + '/' + m.den));
+}
+
+function openSigPop(open) {
+  const pop = $('sigPop'), lbl = $('timeLabel');
+  if (open === undefined) open = pop.hidden;
+  if (open && mode !== 'metronome') return;
+  pop.hidden = !open;
+  lbl.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) { paintMetroSig(); (pop.querySelector('.sig-opt.active') || pop.querySelector('.sig-opt')).focus(); }
+}
+
+function setupMetroSig() {
+  $('metroNumDown').onclick = () => setMetroSignature(settings.metronome.num - 1, settings.metronome.den);
+  $('metroNumUp').onclick = () => setMetroSignature(settings.metronome.num + 1, settings.metronome.den);
+  $('metroBeatNoteSeg').onclick = e => {
+    const b = e.target.closest('.seg-btn');
+    if (b) setMetroSignature(settings.metronome.num, +b.dataset.den);
+  };
+
+  const pop = $('sigPop'), lbl = $('timeLabel');
+  pop.innerHTML = METRO_SIG_COMMON.map(([n, d]) =>
+    '<button class="sig-opt" type="button" data-sig="' + n + '/' + d + '">' + n + '/' + d + '</button>').join('') +
+    '<button class="sig-more" type="button">More in Settings</button>';
+  pop.onclick = e => {
+    const o = e.target.closest('.sig-opt');
+    if (o) { const [n, d] = o.dataset.sig.split('/').map(Number); setMetroSignature(n, d); openSigPop(false); lbl.focus(); return; }
+    if (e.target.closest('.sig-more')) {
+      openSigPop(false);
+      $('settingsBtn').click();
+      setTimeout(() => {
+        const row = $('metroNumVal').closest('.setting-row');
+        const sec = row.closest('.panel-section');
+        if (sec && sec.classList.contains('shut')) sec.querySelector('h3').click();
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }, 350);
+    }
+  };
+  // Stopped here so arrow keys on the picker don't reach the dial and move the tempo.
+  pop.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { openSigPop(false); lbl.focus(); }
+  });
+  // The label is only a control in metronome mode; everywhere else it stays a
+  // caption, so its button semantics are switched with the mode.
+  lbl.addEventListener('click', e => {
+    if (mode !== 'metronome') return;
+    e.stopPropagation();
+    openSigPop();
+  });
+  lbl.addEventListener('keydown', e => {
+    if (mode !== 'metronome' || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openSigPop();
+  });
+  document.addEventListener('pointerdown', e => {
+    if (!pop.hidden && !pop.contains(e.target) && e.target !== lbl) openSigPop(false);
+  });
+  paintMetroSig();
+}
+
+function syncSigLabelRole() {
+  const lbl = $('timeLabel'), on = mode === 'metronome';
+  if (on) {
+    lbl.setAttribute('role', 'button');
+    lbl.tabIndex = 0;
+    lbl.setAttribute('aria-haspopup', 'true');
+    lbl.setAttribute('aria-expanded', $('sigPop').hidden ? 'false' : 'true');
+    lbl.title = 'Change time signature';
+  } else {
+    lbl.removeAttribute('role');
+    lbl.removeAttribute('tabindex');
+    lbl.removeAttribute('aria-haspopup');
+    lbl.removeAttribute('aria-expanded');
+    lbl.removeAttribute('title');
+    if (!$('sigPop').hidden) openSigPop(false);
+  }
+}
+
+// ---------- Audio export ----------
+// A click track to take away: the current tempo, meter, subdivision and sound,
+// rendered to a WAV. Rendering the whole length through an OfflineAudioContext
+// would hold every sample as float32 at once (an hour is ~630MB), so instead
+// each of the three voices is rendered once and stamped into the file at its
+// exact sample position — computed from the pulse's time, not accumulated, so
+// an hour-long file is as on-tempo at the end as at the start. The file is
+// built in chunks the browser can page out rather than one giant buffer.
+const METRO_EXPORT_RATE = 44100;
+// Three hours is ~900MB of WAV — past that, a phone is likely to run out of
+// memory building it, and a desktop user is better served looping a shorter file.
+const METRO_EXPORT_MAX = 10800;   // seconds
+
+// Rounded to whole bars, so the file loops seamlessly in whatever plays it —
+// a cut mid-bar would put a hiccup in the pulse at every repeat.
+function metroExportPlan(secs) {
+  const bar = metroSecondsPerPulse() * metroPulsesPerMeasure();
+  const bars = Math.max(1, Math.round(secs / bar));
+  const dur = bars * bar;
+  const samples = Math.round(dur * METRO_EXPORT_RATE);
+  return { bars, dur, samples, bytes: 44 + samples * 2 };
+}
+
+function fmtLen(secs) {
+  secs = Math.round(secs);
+  const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60;
+  const bits = [];
+  if (h) bits.push(h + 'h');
+  if (m) bits.push(m + 'm');
+  if (s || !bits.length) bits.push(s + 's');
+  return bits.join(' ');
+}
+
+async function renderMetroVoices() {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  // Long enough for the longest built-in voice (the cowbell rings .16s),
+  // or a custom sample played at the sub tier's slower rate.
+  const custom = settings.metronome.sound === 'custom' && metroCustomBuf;
+  const len = Math.ceil(METRO_EXPORT_RATE * Math.max(0.35, custom ? metroCustomBuf.duration / METRO_TIER_PITCH.sub + 0.05 : 0));
+  const out = {};
+  for (const tier of ['accent', 'beat', 'sub']) {
+    const ctx = new OAC(1, len, METRO_EXPORT_RATE);
+    metroClick(tier, 0, ctx, 1);
+    const buf = await ctx.startRendering();
+    const d = buf.getChannelData(0);
+    // Trim the silent tail so the stamping loop only walks samples that matter.
+    let end = d.length;
+    while (end > 0 && Math.abs(d[end - 1]) < 1e-5) end--;
+    out[tier] = d.slice(0, Math.max(end, 1));
+  }
+  return out;
+}
+
+async function exportMetroAudio(secs, onProgress) {
+  const plan = metroExportPlan(secs);
+  const voices = await renderMetroVoices();
+  const rate = METRO_EXPORT_RATE, spp = metroSecondsPerPulse(), ppm = metroPulsesPerMeasure();
+  const totalPulses = plan.bars * ppm;
+  const maxVoice = Math.max(voices.accent.length, voices.beat.length, voices.sub.length);
+
+  const header = new DataView(new ArrayBuffer(44));
+  const str = (o, t) => { for (let i = 0; i < t.length; i++) header.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); header.setUint32(4, 36 + plan.samples * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); header.setUint32(16, 16, true); header.setUint16(20, 1, true); header.setUint16(22, 1, true);
+  header.setUint32(24, rate, true); header.setUint32(28, rate * 2, true);
+  header.setUint16(32, 2, true); header.setUint16(34, 16, true);
+  str(36, 'data'); header.setUint32(40, plan.samples * 2, true);
+
+  const parts = [header.buffer];
+  const CHUNK = rate * 10;
+  const mix = new Float32Array(CHUNK);
+  let pulse = 0;   // first pulse that could still reach the current chunk
+  for (let c0 = 0; c0 < plan.samples; c0 += CHUNK) {
+    const n = Math.min(CHUNK, plan.samples - c0);
+    mix.fill(0);
+    while (pulse < totalPulses && Math.round(pulse * spp * rate) + maxVoice <= c0) pulse++;
+    for (let p = pulse; p < totalPulses; p++) {
+      const at = Math.round(p * spp * rate);
+      if (at >= c0 + n) break;
+      const v = voices[metroPulseTier(p % ppm)];
+      const from = Math.max(0, c0 - at), to = Math.min(v.length, c0 + n - at);
+      for (let i = from; i < to; i++) mix[at + i - c0] += v[i];
+    }
+    const pcm = new Int16Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = Math.max(-1, Math.min(1, mix[i]));
+      pcm[i] = x < 0 ? x * 32768 : x * 32767;
+    }
+    parts.push(pcm.buffer);
+    if (onProgress) onProgress((c0 + n) / plan.samples);
+    // Let the progress paint and keep the tab responsive on a long file.
+    await new Promise(r => setTimeout(r, 0));
+  }
+  return { blob: new Blob(parts, { type: 'audio/wav' }), plan };
+}
+
+const METRO_SUB_NAMES = { 1: '', 2: 'Eighths', 3: 'Triplets', 4: 'Sixteenths' };
+
+function metroExportName(plan) {
+  const m = settings.metronome, sub = METRO_SUB_NAMES[m.subdivision];
+  return 'metronome-' + m.bpm + 'bpm-' + m.num + '-' + m.den + (sub ? '-' + sub.toLowerCase() : '') +
+    '-' + m.sound + '-' + fmtLen(plan.dur).replace(/\s+/g, '') + '.wav';
+}
+
+// Hours, minutes and seconds as three plain boxes: nothing to learn, and the
+// units sit right beside them. Overflow is carried on blur rather than refused
+// — 90 typed into minutes plainly means an hour and a half. Shared by the audio
+// export and the practice timer, each passing the id prefix of its own boxes.
+const durFields = prefix => [[prefix + 'Hr', 3600], [prefix + 'Min', 60], [prefix + 'Sec', 1]];
+
+function readDur(prefix) {
+  const f = durFields(prefix), vals = f.map(([id]) => $(id).value.trim());
+  if (vals.some(v => !/^\d*$/.test(v)) || vals.every(v => !v)) return null;
+  return f.reduce((t, [, mul], i) => t + (+vals[i] || 0) * mul, 0);
+}
+
+function writeDur(prefix, secs) {
+  $(prefix + 'Hr').value = Math.floor(secs / 3600);
+  $(prefix + 'Min').value = String(Math.floor(secs % 3600 / 60)).padStart(2, '0');
+  $(prefix + 'Sec').value = String(secs % 60).padStart(2, '0');
+}
+
+// onChange runs on every edit; onEnter (optional) after Enter has tidied the boxes.
+function wireDur(prefix, max, onChange, onEnter) {
+  const tidy = () => {
+    const secs = readDur(prefix);
+    if (secs === null || secs > max) return;
+    writeDur(prefix, secs);
+    onChange();
+  };
+  durFields(prefix).forEach(([id, unit]) => {
+    const inp = $(id);
+    inp.addEventListener('input', onChange);
+    inp.addEventListener('blur', tidy);
+    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { tidy(); if (onEnter) onEnter(); return; }
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      // Steps move the whole length, so each box rolls into the next one up.
+      const step = (unit === 1 && !e.shiftKey ? 5 : unit) * (e.key === 'ArrowUp' ? 1 : -1);
+      writeDur(prefix, Math.max(1, Math.min(max, (readDur(prefix) || 0) + step)));
+      onChange();
+      inp.select();
+    });
+  });
+}
+
+function paintMetroExport() {
+  if (!$('metroExportMin')) return;
+  const secs = readDur('metroExport');
+  const m = settings.metronome, sub = METRO_SUB_NAMES[m.subdivision];
+  const ok = secs !== null && secs > 0 && secs <= METRO_EXPORT_MAX;
+  durFields('metroExport').forEach(([id]) => $(id).classList.toggle('bad', !ok));
+  const opt = $('metroSoundGrid').querySelector('[data-sound="' + m.sound + '"]');
+  const what = m.bpm + ' BPM · ' + m.num + '/' + m.den + (sub ? ' · ' + sub : '') +
+    (opt ? ' · ' + opt.textContent.replace(/^\S+\s/, '') : '');
+  $('metroExportBtn').disabled = !ok;
+  if (!ok) {
+    $('metroExportInfo').textContent = secs > METRO_EXPORT_MAX ? 'The longest file is 3 hours.'
+      : secs === 0 ? 'Set a length above zero.' : 'Whole numbers only.';
+    return;
+  }
+  const plan = metroExportPlan(secs);
+  $('metroExportInfo').textContent = what + ' · ' + fmtLen(plan.dur) + ' · ' + fmtBytes(plan.bytes);
+}
+
+function setupMetroExport() {
+  const btn = $('metroExportBtn');
+  wireDur('metroExport', METRO_EXPORT_MAX, paintMetroExport, () => { if (!btn.disabled) btn.click(); });
+  btn.onclick = async () => {
+    const secs = readDur('metroExport');
+    if (!(secs > 0 && secs <= METRO_EXPORT_MAX) || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    const label = btn.textContent;
+    try {
+      const { blob, plan } = await exportMetroAudio(secs, p => { btn.textContent = 'Rendering ' + Math.round(p * 100) + '%'; });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = metroExportName(plan);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoked late: some browsers are still reading the blob when click() returns.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      $('metroExportInfo').textContent = 'Could not render the audio in this browser.';
+      btn.textContent = label;
+      delete btn.dataset.busy;
+      btn.disabled = false;
+      return;
+    }
+    btn.textContent = label;
+    delete btn.dataset.busy;
+    paintMetroExport();
+  };
+  paintMetroExport();
 }
 
 // Background tabs commonly throttle timers to roughly once a second. A 120ms
@@ -2094,13 +3556,16 @@ function metroScheduleAhead() {
 function metroSchedulerTick() {
   const ctx = actx();
   const ahead = metroScheduleAhead();
-  while (metroNextPulseTime < ctx.currentTime + ahead) {
+  const end = metroTimerEnd();
+  if (ctx.currentTime >= end) { finishMetroTimer(); return; }
+  while (metroNextPulseTime < ctx.currentTime + ahead && metroNextPulseTime < end - 0.001) {
     const tier = metroPulseTier(metroPulseIndex);
     metroClick(tier, metroNextPulseTime);
     metroScheduleVisual(tier, metroPulseIndex, metroNextPulseTime);
     metroNextPulseTime += metroSecondsPerPulse();
     metroPulseIndex = (metroPulseIndex + 1) % metroPulsesPerMeasure();
   }
+  paintMetroTempoLine();
 }
 
 // Tied to the same schedule as the audio rather than derived from polling
@@ -2120,7 +3585,16 @@ function paintMetroBeat(tier, index) {
   if (tier === 'sub') return;
   metroMainBeatCount++;
   const p = $('metroPendulum');
-  if (p) p.classList.toggle('swing-right', metroMainBeatCount % 2 === 1);
+  if (p) {
+    // Explicit left/right rather than toggling one class on and off — the
+    // unclassed base is 0deg, hanging straight down, and that state has to be
+    // reachable only by having neither class present. Toggling a single
+    // "swing-right" class would leave the arm parked mid-swing (or at 0deg
+    // only on alternating stops) rather than always resting straight down.
+    const right = metroMainBeatCount % 2 === 1;
+    p.classList.toggle('swing-right', right);
+    p.classList.toggle('swing-left', !right);
+  }
   $('dial').classList.toggle('metro-accent', tier === 'accent');
   if (tier === 'accent') setTimeout(() => $('dial').classList.remove('metro-accent'), 90);
 }
@@ -2154,7 +3628,7 @@ function stopMetro() {
   metroTimer = null;
   $('dial').classList.remove('metro-accent');
   const p = $('metroPendulum');
-  if (p) p.classList.remove('swing-right');
+  if (p) p.classList.remove('swing-right', 'swing-left');
   const ticks = $('ticks').children;
   for (let i = 0; i < ticks.length; i++) ticks[i].classList.remove('metro-lit');
 }
@@ -2203,8 +3677,9 @@ function tapTempo() {
   const gaps = [];
   for (let i = 1; i < tapTimes.length; i++) gaps.push(tapTimes[i] - tapTimes[i - 1]);
   const avgMs = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-  const bpm = Math.round(clampNum(60000 / avgMs, 30, 300));
+  const bpm = Math.round(clampNum(60000 / avgMs, 20, 300));
   settings.metronome.bpm = bpm;
+  clampMetroSubdivision();
   save();
   updateMetroLabel();
   updateDisplay();
@@ -2215,11 +3690,27 @@ function tapTempo() {
 
 function clampNum(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+// Standard Italian tempo markings. Purely a readout — unlike metronomePresets
+// these aren't stored or editable, just a quick "what does this number mean"
+// for whatever BPM the dial currently sits at, the way a printed score names
+// the tempo above the staff. Ranges are chosen so the six names already used
+// by the default metronomePresets fall inside their own same-named band.
+const TEMPO_NAMES = [
+  [24, 'Larghissimo'], [45, 'Grave'], [60, 'Largo'], [76, 'Adagio'],
+  [108, 'Andante'], [120, 'Moderato'], [156, 'Allegro'], [176, 'Vivace'],
+  [200, 'Presto']
+];
+function tempoName(bpm) {
+  for (const [max, name] of TEMPO_NAMES) if (bpm <= max) return name;
+  return 'Prestissimo';
+}
+
 function updateMetroLabel() {
   if (mode !== 'metronome') return;
   const m = settings.metronome;
   const subName = { 1: '', 2: ' · Eighths', 3: ' · Triplets', 4: ' · Sixteenths' }[m.subdivision];
   $('timeLabel').textContent = m.num + '/' + m.den + subName;
+  paintMetroTempoLine();
 }
 
 function togglePlay() {
@@ -2238,6 +3729,9 @@ function start() {
     metroStartTime = Date.now();
     syncPlayBtn();
     say('Started, ' + settings.metronome.bpm + ' B P M');
+    // Before startMetro(): its first scheduling pass already checks the end.
+    // +0.05 matches the lead-in startMetro gives the first click.
+    metroRunStartCtx = actx().currentTime + 0.05;
     startMetro();
     syncBodyState();
     requestWake();
@@ -2258,20 +3752,26 @@ function start() {
   requestWake();
 }
 
+// Stops a metronome run whatever mode is on screen. pause() branches on the
+// visible mode, which is wrong for the practice timer: with Keep Modes Running
+// on, the metronome can end while the stopwatch is showing, and pause() there
+// would stop the stopwatch.
+function stopMetroRun(msg) {
+  if (!metroRunning) return;
+  metroRunning = false;
+  metroElapsed += Date.now() - metroStartTime;
+  stopMetro();
+  syncPlayBtn();
+  say(msg || 'Stopped');
+  syncBodyState();
+  releaseWake();
+  logMetroSession(metroElapsed);
+  metroElapsed = 0;   // each start/stop pair is its own logged segment
+  paintMetroTempoLine();
+}
+
 function pause() {
-  if (mode === 'metronome') {
-    if (!metroRunning) return;
-    metroRunning = false;
-    metroElapsed += Date.now() - metroStartTime;
-    stopMetro();
-    syncPlayBtn();
-    say('Stopped');
-    syncBodyState();
-    releaseWake();
-    logMetroSession(metroElapsed);
-    metroElapsed = 0;   // each start/stop pair is its own logged segment
-    return;
-  }
+  if (mode === 'metronome') { stopMetroRun(); return; }
   // Derive from the wall clock rather than trusting whatever tick() last wrote.
   // A throttled background tab can leave elapsed hundreds of ms behind, and
   // pausing on the stale value silently loses that time.
@@ -2511,18 +4011,42 @@ function paintLamps(p) {
   litCount = want;
 }
 
+// The stopwatch ring laps rather than filling once and parking: it used to cap
+// at an hour and then sit full — reading as "done" — for as long as the run
+// went on. Lap length is a setting, in whole minutes (1–720, default 60).
+function stopwatchLap() { return (settings.ringLapMin || 60) * 60000; }
+
+let ringLapIdx = 0;
 function updateRing() {
+  const lap = stopwatchLap();
   const p = mode === 'clock' ? clockProgress()
-    : mode === 'stopwatch' ? Math.min(elapsed / 3600000, 1)
+    : mode === 'stopwatch' ? (elapsed % lap) / lap
     : timerDuration > 0 ? (timerDuration - timerRemaining) / timerDuration : 0;
-  $('ringProgress').style.strokeDashoffset = CIRC * (1 - p);
+  const r = $('ringProgress');
+  
+  // Starting a new lap has to snap from full to empty. The offset carries a
+  // short transition, which would otherwise run the arc visibly backwards
+  // round the dial at every wrap. Only forward wraps — a reset still eases.
+  const idx = mode === 'stopwatch' ? Math.floor(elapsed / lap) : mode === 'clock' ? (p < 0.5 ? 1 : 0) : 0;
+  const wrapped = (mode === 'stopwatch' && idx > ringLapIdx) || (mode === 'clock' && idx === 1 && ringLapIdx === 0);
+  ringLapIdx = idx;
+  if (wrapped) {
+    r.style.transition = 'none';
+    r.style.strokeDashoffset = CIRC * (1 - p);
+    void r.getBoundingClientRect();
+    r.style.transition = '';
+  } else {
+    r.style.strokeDashoffset = CIRC * (1 - p);
+  }
   
   const a = p * Math.PI * 2, h = $('ringHead');
   h.setAttribute('cx', (140 + 126 * Math.cos(a)).toFixed(2));
   h.setAttribute('cy', (140 + 126 * Math.sin(a)).toFixed(2));
   // The clock head crosses zero on every wrap; the 0.0015 cutoff exists to stop
-  // a parked head sitting at 12 o'clock, which isn't a state a clock has.
-  h.style.opacity = settings.showRing && (mode === 'clock' || p > 0.0015) ? '1' : '0';
+  // a parked head sitting at 12 o'clock, which isn't a state a clock has. A
+  // stopwatch past its first lap is the same — it's crossing, not parked.
+  const lapping = mode === 'clock' || (mode === 'stopwatch' && elapsed >= lap);
+  h.style.opacity = settings.showRing && (lapping || p > 0.0015) ? '1' : '0';
 
   // Cheap enough to call unconditionally — paintLamps returns immediately
   // unless the lamp count actually moved, and the CSS only reveals them under
@@ -2583,7 +4107,8 @@ function editPomoRound() {
   el.appendChild(inp);
   inp.focus();
   inp.select();
-  
+  guardCaretPlacement(inp);
+
   let done = false;
   const finish = () => {
     if (done) return;
@@ -2618,7 +4143,8 @@ function editPomoFocus() {
   el.appendChild(inp);
   inp.focus();
   inp.select();
-  
+  guardCaretPlacement(inp);
+
   let done = false;
   const finish = () => {
     if (done) return;
@@ -2647,7 +4173,8 @@ function editPomoBreak() {
   el.appendChild(inp);
   inp.focus();
   inp.select();
-  
+  guardCaretPlacement(inp);
+
   let done = false;
   const finish = () => {
     if (done) return;
@@ -2696,6 +4223,10 @@ function recordLap() {
 function renderLaps() {
   const btns = [$('clearLapsBtn'), $('exportLapsBtn')];
   btns.forEach(b => b.disabled = laps.length === 0);
+  // Nothing to show until the first lap: a bare "LAPS" header with two
+  // greyed-out buttons was the only thing in the right rail on a fresh visit.
+  // A separate class from .hidden, which switchMode owns for non-stopwatch modes.
+  $('lapsContainer').classList.toggle('empty', laps.length === 0);
   
   if (laps.length === 0) {
     $('lapsStats').classList.add('hidden');
@@ -2753,8 +4284,58 @@ function parseTimeInput(str) {
 }
 
 // ========== EDIT TIME (DOUBLE-CLICK) ==========
+// Click-count (dblclick, e.detail) is tracked by timing and screen position,
+// not by which element ends up under the pointer. So the click that lands
+// right after one of these fields opens — a user trying to place the caret
+// somewhere specific — often still counts as click #2 or #3 of the very
+// double-click that opened it, and a native input treats that as
+// select-word/select-all instead of a caret placement. That's what made
+// "double-click to edit, then click to position the cursor" feel broken: the
+// field kept re-selecting itself out from under the user. Guarding just the
+// window right after open (longer than any browser's double-click interval)
+// neutralizes that spillover while leaving real double/triple-clicks made
+// later, once editing is already underway, to behave natively.
+function caretIndexAtX(input, clientX) {
+  const rect = input.getBoundingClientRect();
+  const style = getComputedStyle(input);
+  const canvas = caretIndexAtX._canvas || (caretIndexAtX._canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = style.font;
+  const text = input.value;
+  const widths = [...text].map(ch => ctx.measureText(ch).width);
+  const totalWidth = widths.reduce((a, b) => a + b, 0);
+  const padLeft = parseFloat(style.paddingLeft) || 0;
+  const padRight = parseFloat(style.paddingRight) || 0;
+  const contentWidth = rect.width - padLeft - padRight;
+  let textStart = padLeft;
+  if (style.textAlign === 'center') textStart += Math.max(0, (contentWidth - totalWidth) / 2);
+  else if (style.textAlign === 'right') textStart += Math.max(0, contentWidth - totalWidth);
+  const relX = clientX - rect.left - textStart;
+  let acc = 0;
+  for (let i = 0; i < widths.length; i++) {
+    if (relX < acc + widths[i] / 2) return i;
+    acc += widths[i];
+  }
+  return text.length;
+}
+
+function guardCaretPlacement(input) {
+  const openedAt = performance.now();
+  input.addEventListener('mousedown', e => {
+    if (e.detail < 2 || performance.now() - openedAt > 700) return;
+    e.preventDefault();
+    const idx = caretIndexAtX(input, e.clientX);
+    input.setSelectionRange(idx, idx);
+  });
+}
+
 function editTime() {
-  if (running || mode === 'clock') return;
+  // The shared `running` doesn't apply to metronome mode — it tracks its own
+  // metroRunning precisely so it can keep playing in the background while some
+  // other mode's `running` reflects that other mode instead (see the note by
+  // metroRunning's declaration). Checking the wrong flag here meant this could
+  // silently refuse to open whenever some other mode happened to be running.
+  if ((mode === 'metronome' ? metroRunning : running) || mode === 'clock') return;
   const display = $('timeDisplay');
   const current = display.textContent;
   const input = document.createElement('input');
@@ -2765,11 +4346,33 @@ function editTime() {
   display.appendChild(input);
   input.focus();
   input.select();
-  
+  guardCaretPlacement(input);
+
   let done = false;
   const finish = () => {
     if (done) return;
     done = true;
+    // BPM is a plain number, not a duration — reusing parseTime() would read
+    // "180" as 180 seconds (180000ms) rather than 180 beats per minute, and
+    // even correctly parsed, a duration in ms was never going anywhere near
+    // settings.metronome.bpm: the branch below it wrote to timerDuration
+    // instead, Timer mode's variable, which is why typing a new tempo here
+    // visibly did nothing to the metronome no matter what was entered.
+    if (mode === 'metronome') {
+      const bpm = parseInt(input.value, 10);
+      if (Number.isFinite(bpm)) {
+        settings.metronome.bpm = Math.round(clampNum(bpm, 20, 300));
+        clampMetroSubdivision();
+        save();
+        updateMetroLabel();
+        syncMetroSubdivisionUI();
+        a11yDial();
+        say(settings.metronome.bpm + ' B P M');
+      }
+      updateDisplay();
+      updateRing();
+      return;
+    }
     const ms = parseTime(input.value);
     if (ms !== null && ms >= 0) {
       if (mode === 'stopwatch') {
@@ -2839,6 +4442,13 @@ function setupDial() {
   };
   
   const start = e => {
+    // The inline time/BPM editor's <input> stretches to ~100% of this
+    // auto-sized parent, which resolves far wider than the digits it holds —
+    // wide enough that the visible text near either edge sits inside the
+    // ring's own 0.7-1.1 radius hit zone. Without this check, a click there
+    // to place the caret was instead grabbed as the start of a ring drag,
+    // and the input never even saw a mousedown.
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const isOn = mode === 'metronome' ? metroRunning : running;
     if (isOn || mode === 'clock' || !onRing(e)) return;
     drag = true;
@@ -2854,16 +4464,27 @@ function setupDial() {
       // Same ring, a different quantity: angle maps to BPM across the same
       // clamped range tapTempo() and the sanitiser already use, so a drag can
       // never produce a tempo those other paths would reject.
-      const bpm = Math.round(clampNum(30 + (a / 360) * (300 - 30), 30, 300));
+      const bpm = Math.round(clampNum(20 + (a / 360) * (300 - 20), 20, 300));
       settings.metronome.bpm = bpm;
+      clampMetroSubdivision();
       save();
       updateMetroLabel();
       updateDisplay();
+      // Just the four subdivision buttons, not the whole panel — this runs on
+      // every pointermove while dragging, and apply() rebuilds the entire body
+      // class list plus the full settings sync on every call. That's what made
+      // the drag itself unusable: apply() is expensive enough that calling it
+      // dozens of times a second turns a smooth drag into visible stutter.
+      syncMetroSubdivisionUI();
       a11yDial();
       if (metroRunning) startMetro();   // re-sync scheduling to the new tempo
       return;
     }
-    const ms = Math.round(a / 360 * 3600000 / 1000) * 1000;
+    // A turn of the ring is one lap: an hour for the timers, and whatever the
+    // stopwatch lap is set to for the stopwatch, so the head lands under the
+    // finger either way.
+    const turn = mode === 'stopwatch' ? stopwatchLap() : 3600000;
+    const ms = Math.round(a / 360 * turn / 1000) * 1000;
     if (mode === 'stopwatch') elapsed = ms;
     else { timerDuration = ms; timerRemaining = ms; }
     updateDisplay();
@@ -2893,6 +4514,13 @@ function setupDial() {
   // Home/End go to the ends — the same contract as a native range input. Clock
   // mode is a readout, not a control, so it opts out along with a running one.
   d.addEventListener('keydown', e => {
+    // The inline time/BPM editor (editTime) lives inside this same dial, so
+    // its <input> bubbles keydown up here too. Without this guard, every
+    // arrow-key press meant to move the caret was instead read as a dial
+    // nudge: preventDefault blocked the caret from moving at all, and the
+    // updateDisplay() below tore the input back out to re-render the digit
+    // spans mid-edit, kicking the user out of editing entirely.
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     const isOn = mode === 'metronome' ? metroRunning : running;
     if (isOn || mode === 'clock') return;
     if (mode === 'metronome') {
@@ -2903,14 +4531,21 @@ function setupDial() {
       else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = cur - step;
       else if (e.key === 'PageUp') next = cur + 10;
       else if (e.key === 'PageDown') next = cur - 10;
-      else if (e.key === 'Home') next = 30;
+      else if (e.key === 'Home') next = 20;
       else if (e.key === 'End') next = 300;
       if (next === null) return;
       e.preventDefault();
-      settings.metronome.bpm = Math.round(clampNum(next, 30, 300));
+      settings.metronome.bpm = Math.round(clampNum(next, 20, 300));
+      clampMetroSubdivision();
       save();
       updateMetroLabel();
       updateDisplay();
+      // Just the four subdivision buttons, not the whole panel — this runs on
+      // every pointermove while dragging, and apply() rebuilds the entire body
+      // class list plus the full settings sync on every call. That's what made
+      // the drag itself unusable: apply() is expensive enough that calling it
+      // dozens of times a second turns a smooth drag into visible stutter.
+      syncMetroSubdivisionUI();
       a11yDial();
       say(settings.metronome.bpm + ' B P M');
       return;
@@ -2938,8 +4573,13 @@ function setupDial() {
 
 // ========== EDIT TITLE ==========
 function editTitle() {
-  const el = $('titleEdit');
-  const curr = el.textContent.replace('⏱ ', '');
+  // Edits #titleText, not the whole #titleEdit block — the icon is a sibling
+  // element now rather than an emoji inside the same text node, so the title
+  // no longer has to be stripped of a prefix on read and given it back on
+  // write. It also means the icon stays visible while renaming instead of
+  // being wiped by the input and re-glued afterwards.
+  const el = $('titleText');
+  const curr = el.textContent.trim();
   const inp = document.createElement('input');
   inp.type = 'text';
   inp.value = curr;
@@ -2948,20 +4588,21 @@ function editTitle() {
   el.appendChild(inp);
   inp.focus();
   inp.select();
-  
+  guardCaretPlacement(inp);
+
   let done = false;
   const finish = () => {
     if (done) return;
     done = true;
     const val = inp.value.trim() || 'Chronos';
-    el.textContent = '⏱ ' + val;
+    el.textContent = val;
     try { localStorage.setItem('chronos_title', val); } catch (e) {}
   };
   
   inp.onblur = finish;
   inp.onkeydown = e => {
     if (e.key === 'Enter') finish();
-    if (e.key === 'Escape') { done = true; el.textContent = '⏱ ' + curr; }
+    if (e.key === 'Escape') { done = true; el.textContent = curr; }
   };
 }
 
@@ -3281,7 +4922,7 @@ function sanitiseMetroPresets() {
       Number.isFinite(p.bpm) && Number.isFinite(p.num) && Number.isFinite(p.den))
     .map(p => ({
       name: p.name.trim().slice(0, 24),
-      bpm: Math.round(clampNum(p.bpm, 30, 300)),
+      bpm: Math.round(clampNum(p.bpm, 20, 300)),
       num: Math.round(clampNum(p.num, 1, 16)),
       den: [2, 4, 8, 16].includes(p.den) ? p.den : 4
     }))
@@ -3313,11 +4954,13 @@ function applyMetroPreset(i) {
   settings.metronome.bpm = p.bpm;
   settings.metronome.num = p.num;
   settings.metronome.den = p.den;
+  clampMetroSubdivision();
   metroPulseIndex = 0;
   metroMainBeatCount = 0;
   save();
   updateMetroLabel();
   updateDisplay();
+  syncMetroSubdivisionUI();   // just the four buttons — see the note in setupDial for why not apply()
   a11yDial();
   say(p.name + ', ' + p.bpm + ' B P M');
   if (metroRunning) startMetro();
@@ -3713,6 +5356,7 @@ function syncBodyState() {
   b.classList.toggle('mode-pomodoro', mode === 'pomodoro');
   b.classList.toggle('mode-clock', mode === 'clock');
   b.classList.toggle('mode-metronome', mode === 'metronome');
+  syncSigLabelRole();
   b.classList.toggle('phase-break', mode === 'pomodoro' && pomoPhase !== 'work');
 }
 
@@ -3724,8 +5368,18 @@ function boot() {
   
   const done = () => { booted = true; syncBodyState(); moveTab(); };
   
+  // Opening Animation off: no splash, no [data-reveal] fade-up, and no dial
+  // growing into its size — html.no-intro holds every transition off for the
+  // frame .ready lands in, then lets go so later ones still run.
+  if (!settings.intro) {
+    el.remove();
+    document.documentElement.classList.add('no-intro');
+    done();
+    requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.remove('no-intro')));
+    return;
+  }
   if (RM || seen) { el.remove(); done(); return; }
-  
+
   requestAnimationFrame(() => el.classList.add('go'));
   setTimeout(() => { el.classList.add('out'); done(); setTimeout(() => el.remove(), 900); }, 780);
 }
@@ -3818,16 +5472,17 @@ function initSections() {
     outer.appendChild(inner);
     sec.appendChild(outer);
     
-    // First section stays open on a fresh install; the rest remember their state
-    // Their panel has no collapse at all — createSection() builds a header with
-    // an icon and a label and nothing else, and every section is open. Chronos
-    // keeps the collapse, but a fresh install now starts fully open to match;
-    // shutting one still sticks.
-    const shut = settings.shutSections.length > 0 && settings.shutSections.includes(name);
+    // Until the user has actually collapsed or expanded something themselves,
+    // every section starts shut. Fourteen sections all open at once is a very
+    // long scroll to land on, and it buries the structure — a list of headings
+    // is what makes the panel scannable. After any manual toggle this hands
+    // over entirely to whatever they chose and never second-guesses it again.
+    const shut = settings.sectionsTouched ? settings.shutSections.includes(name) : true;
     sec.classList.toggle('shut', shut);
     
     head.onclick = () => {
       sec.classList.toggle('shut');
+      settings.sectionsTouched = true;
       settings.shutSections = [...document.querySelectorAll('#settingsPanel .panel-section.shut')]
         .map(s => s.querySelector('h3').textContent.trim());
       save();
@@ -3921,7 +5576,8 @@ function buildPalette() {
     const s = b.dataset.sound;
     COMMANDS.push(cmd('sound', 'Ambient: ' + s, 'Sound', () => toggleAmbient(s)));
   });
-  
+  syncPresetCommands();
+
   $('paletteInput').oninput = () => renderPalette();
   $('paletteList').onclick = e => {
     const it = e.target.closest('.pal-item');
@@ -4159,7 +5815,9 @@ function a11ySync() {
 
   document.querySelectorAll('.slider-row').forEach(row => {
     const inp = row.querySelector('.slider'), val = row.querySelector('.slider-val');
-    if (inp && val) inp.setAttribute('aria-valuetext', val.textContent.trim());
+    // Screen readers often drop a bare "°", which would leave the hue slider
+    // reading out as a unitless number.
+    if (inp && val) inp.setAttribute('aria-valuetext', val.textContent.trim().replace(/°$/, ' degrees'));
   });
 
   // The video seek bar sits outside .slider-row and reads out through .bg-time.
@@ -4207,7 +5865,7 @@ function a11yDial() {
     d.setAttribute('role', 'slider');
     d.tabIndex = 0;
     d.setAttribute('aria-label', 'Tempo. Drag the ring, or use the arrow keys, to set the beats per minute.');
-    d.setAttribute('aria-valuemin', '30');
+    d.setAttribute('aria-valuemin', '20');
     d.setAttribute('aria-valuemax', '300');
     d.setAttribute('aria-valuenow', settings.metronome.bpm);
     d.setAttribute('aria-valuetext', settings.metronome.bpm + ' beats per minute');

@@ -1,0 +1,12 @@
+{
+  "name": "chronos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "css-tree": "^3.2.1",
+    "jsdom": "^30.0.1"
+  }
+}

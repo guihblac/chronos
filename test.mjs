@@ -134,11 +134,13 @@ const BRIDGE = `
   get history() { return history; },
   set history(v) { history = v; },
   get analytics() { return analytics; },
-  metroPulseTier, metroPulsesPerMeasure, metroSecondsPerPulse,
+  metroPulseTier, metroPulsesPerMeasure, metroSecondsPerPulse, maxMetroSubdivision,
   tapTempo, startMetro, stopMetro, updateMetroLabel, lapOrTap,
   paintMetroBeat, paintMetroLamps, sanitiseMetroPresets,
+  get metroMainBeatCount() { return metroMainBeatCount; },
+  set metroMainBeatCount(v) { metroMainBeatCount = v; },
   recordLap, switchMode, apply, renderLaps, paintLamps, buildTicks,
-  start, pause, reset, togglePlay, updateDisplay, a11yDial, save
+  start, pause, reset, togglePlay, updateDisplay, a11yDial, save, editTime
 };`;
 
 let bootError = null;
@@ -216,7 +218,11 @@ ok('sel-head aria-expanded tracks .open',
 // ---------- tabs ----------
 const tabs = [...doc.querySelectorAll('.mode-tab:not(.hidden)')];
 const allTabs = [...doc.querySelectorAll('.mode-tab')];
-ok('five tabs exist; only Clock ships hidden by default', allTabs.length === 5 && tabs.length === 4,
+// Lean defaults: only the three core timing modes show out of the box;
+// Clock and Metronome are one switch away in Settings > Modes.
+ok('five tabs exist; Clock and Metronome ship hidden by default',
+  allTabs.length === 5 && tabs.length === 3 &&
+  ['tabClock', 'tabMetronome'].every(id => doc.getElementById(id).classList.contains('hidden')),
   allTabs.length + ' tabs, ' + tabs.length + ' visible');
 ok('hidden tabs are out of the tab order and the a11y tree',
   allTabs.filter(t => t.classList.contains('hidden'))
@@ -835,11 +841,17 @@ ok('the split overlay is hidden from the reader',
   ok('the dial drops its normal duration role for a tempo slider',
     !$('dial').getAttribute('aria-label').startsWith('Duration') &&
     $('dial').getAttribute('aria-label').toLowerCase().includes('tempo'));
-  ok('aria-valuemin/max cover the real BPM range', $('dial').getAttribute('aria-valuemin') === '30' &&
+  ok('aria-valuemin/max cover the real BPM range', $('dial').getAttribute('aria-valuemin') === '20' &&
     $('dial').getAttribute('aria-valuemax') === '300');
   ok('the ring adopts metro-mode, hiding the normal progress arc',
     $('dial').classList.contains('metro-mode'));
-  ok('the tempo/signature presets are shown in the rail', !$('metroPresets').classList.contains('hidden'));
+  // The rail became opt-in (settings.showMetroPresets, off by default), so
+  // check both sides of the toggle rather than assuming it's always shown.
+  ok('the preset rail stays hidden while its setting is off (the default)',
+    $('metroPresets').classList.contains('hidden'));
+  T.settings.showMetroPresets = true; T.apply();
+  ok('the tempo/signature presets are shown in the rail once enabled',
+    !$('metroPresets').classList.contains('hidden'));
   // Toggling a class only matters if CSS actually reacts to it — jsdom has no
   // layout engine to catch a missing .metro-presets.hidden rule by itself, so
   // this checks the class state across every OTHER mode too, and the static
@@ -870,6 +882,30 @@ ok('the split overlay is hidden from the reader',
   ok('a scheduler interval exists once started', T.metroTimer !== null);
   ok('the play button reflects metroRunning while on this tab',
     $('playBtn').getAttribute('aria-label') === 'Pause');
+
+  // ----- pendulum: alternates properly, and truly rests on stop -----
+  {
+    const p = $('metroPendulum');
+    T.metroMainBeatCount = 0;
+    T.paintMetroBeat('accent', 0);   // beat 1 -> count becomes 1 -> right
+    ok('the first beat swings the pendulum right',
+      p.classList.contains('swing-right') && !p.classList.contains('swing-left'));
+    T.paintMetroBeat('beat', 1);     // beat 2 -> count becomes 2 -> left
+    ok('the next beat swings it to the opposite side, not back to neutral',
+      p.classList.contains('swing-left') && !p.classList.contains('swing-right'));
+    T.paintMetroBeat('sub', 2);      // a subdivision pulse must not move the pendulum at all
+    ok('a subdivision tick does not touch the pendulum — only main beats do',
+      p.classList.contains('swing-left') && !p.classList.contains('swing-right'));
+    T.stopMetro();
+    ok('stopping clears both swing classes, reaching the true 0deg rest state',
+      !p.classList.contains('swing-left') && !p.classList.contains('swing-right'));
+    // stopMetro() only clears the timer and visuals — it's the lower-level
+    // primitive pause() calls, and unlike pause() it deliberately doesn't
+    // touch metroRunning. Calling it directly here (to test the rest state)
+    // leaves metroTimer null, which the very next assertion checks — restart
+    // the scheduler so this test block doesn't leak state into the next one.
+    T.startMetro();
+  }
 
   // The whole point of background click-along: switching to another mode
   // must not touch metroRunning, and that other mode's own running state is
@@ -959,8 +995,49 @@ ok('the split overlay is hidden from the reader',
     T.timerDuration === 777000);
   dial.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
   ok('End sets the ceiling of the real range', T.settings.metronome.bpm === 300);
+
+  // ----- subdivision vs BPM: can't dial in a combination that isn't audible -----
+  // At 300 BPM, subdivision 4 is 20Hz — well past where individual clicks are
+  // countable rather than a buzz. Exercised through the actual dial keyboard
+  // path (End, above) rather than setting bpm directly, so this proves the
+  // guard is wired into a real call site, not just correct in isolation.
+  {
+    ok('maxMetroSubdivision agrees with the actual perceptual-ceiling math',
+      T.maxMetroSubdivision(300) === 2 && T.maxMetroSubdivision(120) === 4 &&
+      T.maxMetroSubdivision(250) === 2 && T.maxMetroSubdivision(200) === 3,
+      [T.maxMetroSubdivision(300), T.maxMetroSubdivision(120), T.maxMetroSubdivision(250), T.maxMetroSubdivision(200)].join(','));
+
+    // Sub was 4 (set earlier), bpm just became 300 via the real dial path —
+    // reaching End should have auto-corrected it down to something audible.
+    ok('reaching 300 BPM auto-corrects an unreachable subdivision down to the fastest usable one',
+      T.settings.metronome.subdivision <= 2, T.settings.metronome.subdivision);
+
+    const sub4 = doc.querySelector('#metroSubSeg .seg-btn[data-sub="4"]');
+    const sub3 = doc.querySelector('#metroSubSeg .seg-btn[data-sub="3"]');
+    const sub1 = doc.querySelector('#metroSubSeg .seg-btn[data-sub="1"]');
+    ok('subdivision 4 is visibly disabled at 300 BPM',
+      sub4.classList.contains('disabled') && sub4.getAttribute('aria-disabled') === 'true');
+    ok('subdivision 3 is disabled too — 15Hz is still not countable',
+      sub3.classList.contains('disabled'));
+    ok('subdivision 1 (plain beats) is never disabled at any BPM',
+      !sub1.classList.contains('disabled'));
+
+    // Clicking a disabled option must be a no-op, not a workaround.
+    const before = T.settings.metronome.subdivision;
+    sub4.click();
+    ok('clicking a disabled subdivision option does nothing',
+      T.settings.metronome.subdivision === before);
+
+    // Coming back down to a normal tempo un-disables it again — this isn't a
+    // one-way lock, it tracks the current BPM live.
+    dial.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    T.settings.metronome.bpm = 120; T.apply();
+    ok('dropping back to a normal tempo re-enables the fast subdivisions',
+      !doc.querySelector('#metroSubSeg .seg-btn[data-sub="4"]').classList.contains('disabled'));
+  }
+
   dial.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
-  ok('Home sets the floor of the real range', T.settings.metronome.bpm === 30);
+  ok('Home sets the floor of the real range', T.settings.metronome.bpm === 20);
   T.settings.metronome.bpm = 120; T.apply();
 
   // Dial control must lock out while playing, same contract as duration modes.
@@ -971,6 +1048,82 @@ ok('the split overlay is hidden from the reader',
     T.settings.metronome.bpm === lockedBpm);
   T.metroRunning = false; T.apply();
 
+  // ----- the dial drag path must never call the expensive apply() -----
+  // apply() rebuilds the entire body class list and re-syncs the whole
+  // settings panel — on the order of a couple hundred DOM operations. The
+  // subdivision guard originally called it from inside the pointermove
+  // handler to resync four disabled-state buttons, which meant every pixel
+  // of a drag re-ran the full app sync: the drag itself became visibly
+  // unusable, not just slower. Checked structurally since jsdom has no real
+  // pointer/frame timing to measure the lag directly.
+  {
+    const setupDialSrc = js.slice(js.indexOf('function setupDial'), js.indexOf('function setupDial') + 6000);
+    const moveFn = setupDialSrc.slice(setupDialSrc.indexOf('const move ='), setupDialSrc.indexOf('const end ='))
+      .replace(/\/\/.*$/gm, '');   // strip line comments — one of them explains why apply() is wrong here
+    ok('the pointermove handler resyncs only the subdivision buttons, not the whole app',
+      /syncMetroSubdivisionUI\(\)/.test(moveFn) && !/[^.]\bapply\(\)/.test(moveFn));
+    const keydownFn = setupDialSrc.slice(setupDialSrc.indexOf("d.addEventListener('keydown'"));
+    ok('the dial keyboard handler does the same — cheap resync, not a full apply()',
+      /syncMetroSubdivisionUI\(\)/.test(keydownFn));
+  }
+
+  // ----- double-click-to-edit the BPM readout -----
+  // editTime() is the same double-click handler Timer/Stopwatch/Pomodoro use
+  // on #timeDisplay — it never had a metronome branch. Two separate bugs
+  // stacked: the opening guard checked the shared `running` instead of
+  // metroRunning (so it could refuse to open for the wrong reason), and on
+  // finish it parsed the input with parseTime() — built for MM:SS — and wrote
+  // the result to timerDuration, Timer mode's variable. Typing a new tempo
+  // visibly did nothing no matter what was entered, because nothing ever
+  // touched settings.metronome.bpm. Exercised as the real flow: create the
+  // input, type into it, fire blur, the way a person actually interacts with
+  // this control — not by calling internals directly.
+  {
+    T.settings.metronome.bpm = 120; T.metroRunning = false; T.apply();
+    T.editTime();
+    const input = $('timeDisplay').querySelector('input');
+    ok('double-clicking the BPM readout opens an editable input', !!input);
+    input.value = '180';
+    input.dispatchEvent(new win.Event('blur'));
+    ok('typing a new tempo and blurring actually changes settings.metronome.bpm',
+      T.settings.metronome.bpm === 180, T.settings.metronome.bpm);
+    ok('...and the readout reflects it, not a stale value', $('timeDisplay').textContent === '180');
+
+    // Out-of-range input clamps the same way every other BPM input path does.
+    T.editTime();
+    $('timeDisplay').querySelector('input').value = '999';
+    $('timeDisplay').querySelector('input').dispatchEvent(new win.Event('blur'));
+    ok('a value above the real range clamps to the ceiling, same as the dial',
+      T.settings.metronome.bpm === 300);
+
+    // A tempo change here has to reach the same subdivision guard the dial
+    // and tap-tempo already go through — not a fourth, inconsistent path.
+    T.settings.metronome.subdivision = 4;
+    T.editTime();
+    $('timeDisplay').querySelector('input').value = '300';
+    $('timeDisplay').querySelector('input').dispatchEvent(new win.Event('blur'));
+    ok('editing to a fast tempo also auto-corrects an unreachable subdivision',
+      T.settings.metronome.subdivision <= 2, T.settings.metronome.subdivision);
+
+    // Must not be blocked by the shared `running` flag leaking in from
+    // whatever mode was active before this one.
+    T.settings.metronome.bpm = 120; T.settings.metronome.subdivision = 1;
+    T.metroRunning = false; T.running = true;   // some other mode's flag, left on
+    T.editTime();
+    ok('a stale shared `running` from another mode does not block editing here',
+      !!$('timeDisplay').querySelector('input'));
+    $('timeDisplay').querySelector('input').dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape' }));
+    T.running = false;
+
+    // But the metronome's OWN running state correctly still blocks it — same
+    // contract every other mode's dial editing already has.
+    T.metroRunning = true; T.apply();
+    T.editTime();
+    ok('editing is blocked while the metronome is actually playing',
+      !$('timeDisplay').querySelector('input'));
+    T.metroRunning = false; T.apply();
+  }
+
   // ----- subdivision / sound controls, now in Settings -----
   doc.querySelector('#metroSubSeg .seg-btn[data-sub="3"]').click();
   ok('the subdivision control (in Settings) sets triplets', T.settings.metronome.subdivision === 3);
@@ -978,7 +1131,22 @@ ok('the split overlay is hidden from the reader',
     doc.querySelector('#metroSubSeg .seg-btn[data-sub="3"]').classList.contains('is-active'));
   ok('changing subdivision does not touch tempo or signature',
     T.settings.metronome.bpm === 120 && T.settings.metronome.num === 4);
+
+  // The dial label reads "4/4 · Triplets" — subdivision is half of what it
+  // shows. The tests above checked the setting and the button's own state but
+  // never the label, which is exactly how this shipped broken: the handler
+  // updated the data and the control, and simply never redrew the text.
+  // Every subdivision value gets checked, not just one, since a single spot
+  // check would pass on a handler that only refreshed some of them.
+  ok('picking triplets updates the dial label', $('timeLabel').textContent === '4/4 · Triplets',
+    $('timeLabel').textContent);
+  doc.querySelector('#metroSubSeg .seg-btn[data-sub="2"]').click();
+  ok('...and eighths', $('timeLabel').textContent === '4/4 · Eighths', $('timeLabel').textContent);
+  doc.querySelector('#metroSubSeg .seg-btn[data-sub="4"]').click();
+  ok('...and sixteenths', $('timeLabel').textContent === '4/4 · Sixteenths', $('timeLabel').textContent);
   doc.querySelector('#metroSubSeg .seg-btn[data-sub="1"]').click();
+  ok('going back to no subdivision drops the suffix entirely, leaving just the signature',
+    $('timeLabel').textContent === '4/4', $('timeLabel').textContent);
 
   const soundBefore = T.settings.metronome.distinctSounds;
   $('metroSoundToggle').click();
@@ -1060,8 +1228,12 @@ ok('the split overlay is hidden from the reader',
   // the sanitiser, a corrupted or hand-crafted backup file becomes a crash
   // the moment the metronome rail tries to render it — worth pinning
   // structurally, not just testing the function works when called directly.
+  // The import path now runs the whole sanitiseSettings() pass, which calls
+  // sanitiseMetroPresets() itself — so either call right after the merge counts,
+  // as long as sanitiseSettings really does still reach the preset guard.
   ok('importing settings actually runs the metronome-preset sanitiser',
-    /Object\.assign\(settings, data\.settings\)[\s\S]{0,700}sanitiseMetroPresets\(\)/.test(js));
+    /Object\.assign\(settings, data\.settings\)[\s\S]{0,700}sanitise(MetroPresets|Settings)\(\)/.test(js) &&
+    /function sanitiseSettings\(\) \{[\s\S]*?sanitiseMetroPresets\(\)[\s\S]*?\n\}/.test(js));
 }
 
 // ---------- transport buttons don't rely on wrapping to fit their label ----------
@@ -1087,6 +1259,24 @@ ok('the split overlay is hidden from the reader',
     ok(t + ' has some horizontal breathing room, not text jammed to the border',
       /padding:\s*\d+px\s+[1-9]/.test(body));
   });
+}
+
+// ---------- BPM floor is consistent everywhere, not just one path ----------
+// This is the exact class of bug the metronome keeps producing: one numeric
+// bound, five-plus places it gets enforced (the sanitiser, tap tempo, the
+// dial drag, the dial keyboard, presets, the add-preset prompt), and a change
+// to the bound is only real if every one of them agrees. Checked by counting
+// occurrences rather than trusting any single call site.
+{
+  const floor30 = (js.match(/30, 300/g) || []).length;
+  ok('no BPM path still enforces the old 30 floor', floor30 === 0, floor30);
+  const floor20 = (js.match(/20, 300/g) || []).length;
+  ok('every clamp/clampNum BPM call site uses the new 20 floor, not just some of them',
+    floor20 >= 6, floor20);
+  ok('the dial keyboard Home key matches', /Home'\) next = 20;/.test(js));
+  ok('the a11y valuemin matches', /aria-valuemin', '20'/.test(js));
+  ok('the add-preset prompt text matches, not just the actual clamp behind it',
+    /BPM \(20.{1,10}300\)/.test(js));
 }
 
 // ---------- computed contrast: every theme, both readings ----------
@@ -1155,10 +1345,12 @@ ok('the split overlay is hidden from the reader',
 // generalized rather than re-litigated by hand for each of the nine
 // properties: for every OTHER theme, .light really does mean "this state is
 // the bright one" (--text should read dark, meaning the theme's own bright
-// surface is showing). For Gnomon and Kymograph specifically it's inverted.
+// surface is showing). For Gnomon specifically it's inverted. Kymograph used to
+// be too, until its palette was swapped the right way round — it now sits in
+// the ordinary list below.
 {
   const other = ['minimal', 'aurora', 'matrix', 'sunset', 'neon', 'glass', 'retro', 'cosmic', 'vivaldi',
-    'bahnhof', 'safelight', 'paceclock', 'vane'];
+    'bahnhof', 'safelight', 'paceclock', 'vane', 'kymograph'];
   const luminance = hex => {
     const v = hex.replace('#', '');
     const n = parseInt(v.length === 3 ? v.split('').map(c => c + c).join('') : v, 16);
@@ -1174,10 +1366,10 @@ ok('the split overlay is hidden from the reader',
     ok(t + ': .light really is the brighter of its two readings',
       luminance(lightBg) > luminance(baseBg), t + ' base=' + baseBg + ' light=' + lightBg);
   });
-  // Gnomon and Kymograph fail that same check — confirmed inverted, not a
-  // false alarm — which is exactly why they needed the standalone correction
-  // rather than a shared assumption everyone could rely on.
-  ['gnomon', 'kymograph'].forEach(t => {
+  // Gnomon fails that same check — confirmed inverted, not a false alarm —
+  // which is exactly why it needed the standalone correction rather than a
+  // shared assumption everyone could rely on.
+  ['gnomon'].forEach(t => {
     const base = css.match(new RegExp('\\.visual-' + t + '\\s*\\{([^}]*)\\}'));
     const light = css.match(new RegExp('\\.visual-' + t + '\\.light\\s*\\{([^}]*)\\}'));
     const baseBg = (base[1].match(/--bg:\s*(#[0-9a-fA-F]{3,8})/) || [])[1];
@@ -1194,12 +1386,18 @@ ok('the split overlay is hidden from the reader',
     '.ambient-bar', '.sel-swatch'];
   ['gnomon', 'kymograph'].forEach(t => {
     fixed.forEach(sel => {
+      // Kymograph's ambient bar is deliberately styled with its rail cards
+      // (hard var(--text) outline) instead — checked separately below.
+      if (t === 'kymograph' && sel === '.ambient-bar') return;
       ok(t + ' corrects ' + sel + ' with color-mix, not another hardcoded literal',
         new RegExp('\\.visual-' + t + ' ' + sel + '[^{]*\\{[^}]*color-mix\\(in srgb, var\\(--text\\)').test(css) ||
         new RegExp('\\.visual-' + t + '[^{,]*,[\\s\\S]{0,30}' + sel + '[^{]*\\{[^}]*color-mix\\(in srgb, var\\(--text\\)').test(css),
         sel);
     });
   });
+
+  ok('kymograph styles .ambient-bar with its rail cards (hard var(--text) outline)',
+    /\.visual-kymograph \.tag-card,\s*\.visual-kymograph \.ambient-bar,[^{]*\{[^}]*border:\s*1px solid var\(--text\)/.test(css));
 
   // Specificity tie-break: .light .toggle and .visual-gnomon .toggle are both
   // two classes, so which one wins when BOTH are present (Gnomon's dark state)
@@ -1208,6 +1406,138 @@ ok('the split overlay is hidden from the reader',
   const gnomonToggleFixIdx = css.indexOf('.visual-gnomon .toggle,');
   ok('the correction block appears after .light .toggle, so it wins the specificity tie',
     gnomonToggleFixIdx > lightToggleIdx && lightToggleIdx > -1);
+}
+
+// ---------- icon set consistency: SVG everywhere, not emoji ----------
+// The mode tabs used emoji (⏱ ⏲ 🍅 🕐 🎵) while every icon in the settings
+// panel was a drawn SVG from the shared icon() set. Emoji are rendered by the
+// OS font, so they're filled, multi-colour and platform-specific — a
+// completely different visual language sitting right next to the line-art
+// set, and no amount of CSS sizing could reconcile them. Each tab now uses
+// the same glyph its matching Modes settings row uses.
+{
+  const tabs = [...doc.querySelectorAll('.mode-tab')];
+  ok('every mode tab renders a real SVG icon', tabs.every(t => t.querySelector('svg')),
+    tabs.filter(t => !t.querySelector('svg')).map(t => t.dataset.mode).join(','));
+  ok('no emoji left in any tab label',
+    !/[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}]/u.test(tabs.map(t => t.textContent).join('')),
+    tabs.map(t => t.textContent.trim()).join('|'));
+
+  // Each tab's icon must match the icon on its own settings row — the same
+  // mode showing two different glyphs in two places is the inconsistency
+  // this whole change is about.
+  const mismatched = tabs.filter(t => {
+    const tabIco = t.querySelector('.tab-ico');
+    const row = [...doc.querySelectorAll('#settingsPanel .setting-label')]
+      .find(l => l.textContent.trim().toLowerCase() === t.textContent.trim().toLowerCase());
+    const rowIco = row && row.previousElementSibling;
+    return !tabIco || !rowIco || tabIco.dataset.ico !== rowIco.dataset.ico;
+  });
+  ok('each tab uses the same glyph as its own Modes settings row',
+    mismatched.length === 0, mismatched.map(t => t.dataset.mode).join(','));
+
+  // The icon is decoration — the tab's own text is its accessible name, so
+  // the icon must not add anything to it.
+  ok('tab icons are hidden from assistive tech',
+    tabs.every(t => t.querySelector('.tab-ico').getAttribute('aria-hidden') === 'true'));
+
+  // Logo: same change, plus the emoji used to live inside the title's own
+  // textContent, meaning every read stripped a prefix and every write glued
+  // one back on. The icon is a sibling element now.
+  ok('the wordmark uses an SVG icon too', !!$('titleEdit').querySelector('svg'));
+  ok('the title is its own text node, not an emoji-prefixed string',
+    !!$('titleText') && $('titleText').textContent.trim() === 'Chronos');
+  ok('no emoji string-surgery left anywhere in the JS', !/'⏱ '/.test(js));
+}
+
+// ---------- icon size consistency ----------
+// Every icon in the app goes through the same icon() function — same glyph
+// paths, same 24x24 viewBox, same 1.7 stroke-width — so the only way two
+// icons can visibly disagree is a CSS size override, and because stroke-width
+// lives inside that fixed viewBox, a smaller rendered size doesn't just look
+// smaller, it looks proportionally thinner too. .sec-ico was rendering at
+// 14px while .row-ico and .sel-ico — the two other icon families inside the
+// exact same settings panel — were both at 19px, closely matching the top
+// bar's 18px. Section headers are the most prominent text in the panel;
+// their icon being the smallest and thinnest of the three was backwards.
+{
+  const svgSize = sel => {
+    const m = css.match(new RegExp(sel.replace(/[.#]/g, '\\$&') + ' svg \\{ width: (\\d+)px'));
+    return m ? +m[1] : null;
+  };
+  const sizes = { sec: svgSize('.sec-ico'), row: svgSize('.row-ico'), sel: svgSize('.sel-ico') };
+  ok('every icon family inside the settings panel renders at the same size',
+    sizes.sec === sizes.row && sizes.row === sizes.sel, JSON.stringify(sizes));
+  ok('that size is close to the top bar\'s 18px, not a separate scale entirely',
+    Math.abs(sizes.row - 18) <= 2, sizes.row);
+}
+
+// ---------- settings sections start collapsed until the user says otherwise ----------
+// Fourteen sections all expanded is a very long scroll to land on, and it
+// buries the structure the headings are there to provide. An empty
+// shutSections can't drive this on its own — it means both "never opened
+// settings" and "opened every section by hand" — so a separate flag records
+// whether the user has actually expressed a preference yet.
+{
+  const secs = [...doc.querySelectorAll('#settingsPanel .panel-section')];
+  ok('the collapse flag exists and defaults to untouched',
+    /sectionsTouched: false/.test(js));
+  ok('an untouched install starts every section shut, not open',
+    /settings\.sectionsTouched \? settings\.shutSections\.includes\(name\) : true/.test(js));
+  ok('toggling any section records that the user has now chosen for themselves',
+    /settings\.sectionsTouched = true;/.test(js));
+  ok('the flag is coerced to a real boolean on load, so a stale value can\'t invert it',
+    /settings\.sectionsTouched = !!settings\.sectionsTouched;/.test(js));
+
+  // Behavioural: this suite boots with no saved settings, so every section
+  // should currently be shut — and clicking one must open it and stick.
+  ok('every section is actually shut in a fresh boot',
+    secs.every(s => s.classList.contains('shut')),
+    secs.filter(s => !s.classList.contains('shut')).length + ' open');
+  const head = secs[2].querySelector('h3');
+  head.click();
+  ok('clicking a heading opens that section', !secs[2].classList.contains('shut'));
+  ok('...and the others stay shut, rather than all expanding',
+    secs.filter(s => !s.classList.contains('shut')).length === 1);
+  ok('...and the choice is now recorded', win.__t.settings.sectionsTouched === true);
+  ok('the open section is remembered as not-shut in the saved list',
+    !win.__t.settings.shutSections.includes(secs[2].querySelector('h3').textContent.trim()));
+  head.click();   // restore
+}
+
+// ---------- settings panel organisation ----------
+// Pomodoro, Clock and Metronome are the three mode-specific settings sections
+// — the same category of thing as each other, unlike Layout, Sound or
+// Background, which apply regardless of mode. Clock used to sit five sections
+// away, past Layout & Elements and Sound & Notifications, which is what read
+// as "grouped with Advanced" even though it technically had its own header.
+// Pinned here as adjacency, in mode-tab order, not just "a header exists
+// somewhere in the document".
+{
+  const headings = [...doc.querySelectorAll('#settingsPanel .panel-section h3')]
+    .map(h => h.textContent.trim());
+  const idx = name => headings.indexOf(name);
+  ok('Pomodoro, Clock and Metronome are consecutive sections, in mode-tab order',
+    idx('Clock') === idx('Pomodoro') + 1 && idx('Metronome') === idx('Clock') + 1,
+    headings.join(' > '));
+
+  // The "two advanced options" feeling: Custom CSS is a genuinely different
+  // kind of setting (raw CSS injection) from Motion/Tips/Voice/Wake/Confirm
+  // (ordinary behaviour toggles), and cramming both under one "Advanced"
+  // label was the muddle. Split into two named sections instead of one vague
+  // catch-all.
+  ok('there is no single combined "Advanced" section left', !headings.includes('Advanced'));
+  ok('Behavior and Custom CSS exist as their own separate sections',
+    headings.includes('Behavior') && headings.includes('Custom CSS'));
+  ok('Custom CSS is its own section, not sharing a header with the toggles',
+    idx('Custom CSS') > idx('Behavior'));
+
+  // Nothing should have gone missing in the split/move.
+  ['motionSeg', 'tipsToggle', 'voiceToggle', 'wakeToggle', 'confirmToggle', 'customCssInput',
+   'clockDep', 'clockOffNote', 'hour12Toggle', 'clockSecondsToggle', 'clockDateToggle',
+   'metroSubSeg', 'metroSoundToggle'].forEach(id => {
+    ok(id + ' survived the reorganisation', !!$(id));
+  });
 }
 
 // ---------- METRONOME: CSS ----------
@@ -1219,6 +1549,46 @@ ok('the split overlay is hidden from the reader',
   // nothing at all and the rail stayed visible in every mode.
   ok('.metro-presets.hidden actually hides the element',
     /\.metro-presets\.hidden\s*\{[^}]*display:\s*none/.test(css));
+
+  // Pendulum redesign — round two. A 2px-wide rotated bar with a
+  // fade-to-transparent gradient is exactly the shape that renders as a
+  // broken/dashed line instead of a clean stroke (thin + off-axis + a
+  // gradient stop all compound), and the bob was sitting 6px shy of the
+  // arm's own tip, leaving a stub of shaft hanging past it. Both pinned here
+  // so a future edit can't casually reintroduce either.
+  {
+    const arm = css.match(/\.metro-pendulum-arm \{([^}]*)\}/);
+    ok('the pendulum arm exists', !!arm);
+    if (arm) {
+      ok('the arm is wide enough to rotate without dashed-line aliasing (was 2px)',
+        /width:\s*3px/.test(arm[1]), arm[1].match(/width:\s*[\d.]+px/));
+      ok('the arm is a solid fill, not a fading gradient (the aliasing culprit)',
+        !/gradient/.test(arm[1]) && /background:\s*var\(--accent\)/.test(arm[1]));
+      ok('the arm hangs straight down at rest — 0deg, not one of its own swing extremes',
+        /transform:\s*rotate\(0deg\)/.test(arm[1]));
+    }
+    // Anchored: overrides like `body.no-button-glow ... .metro-pendulum-bob {`
+    // come earlier in the file and would otherwise be matched instead.
+    const bob = css.match(/^\.metro-pendulum-bob \{([^}]*)\}/m);
+    ok('the bob exists', !!bob);
+    if (bob) {
+      ok('the bob sits exactly at the arm\'s tip (negative bottom offset), not shy of it',
+        /bottom:\s*-\d/.test(bob[1]), bob[1].match(/bottom:\s*[\-\d.]+px/));
+    }
+    ok('there is now a visible, non-rotating pivot the arm actually hangs from',
+      /\.metro-pendulum::before \{/.test(css));
+    ok('the pivot does not compete with the bob for attention (a text tint, not the accent colour)',
+      (() => {
+        const piv = css.match(/\.metro-pendulum::before \{([^}]*)\}/);
+        return piv && /var\(--text\)/.test(piv[1]) && !/var\(--accent\)/.test(piv[1]);
+      })());
+    ok('swing-left and swing-right are true opposite extremes of equal magnitude', (() => {
+      const l = css.match(/\.metro-pendulum\.swing-left \.metro-pendulum-arm \{ transform: rotate\((-?\d+)deg\)/);
+      const r = css.match(/\.metro-pendulum\.swing-right \.metro-pendulum-arm \{ transform: rotate\((-?\d+)deg\)/);
+      return l && r && +l[1] === -(+r[1]);
+    })());
+  }
+
   ok('the pendulum only renders in metronome mode',
     /\.mode-metronome \.metro-pendulum \{ display: block/.test(css));
   ok('its swing duration is driven by --beat-ms, set live from BPM', /var\(--beat-ms/.test(css));
@@ -1301,6 +1671,62 @@ ok('ambient aria-pressed matches classes',
   [...doc.querySelectorAll('.ambient-btn')].every(b =>
     b.getAttribute('aria-pressed') === String(b.classList.contains('active'))));
 
+// ---------- narrow layout: .main can't outgrow the space .stage gives it ----------
+// .stage centres its children by content width (align-items: center), not by
+// stretching them, so .main{max-width:400px} alone was only ever an upper
+// bound -- nothing tied it to the space .stage actually had. Measured in a
+// real browser (jsdom has no layout to catch this): at a 320px viewport,
+// .stage was 288px wide but .main still rendered at its full ~400px content
+// width, which is what pushed the top-bar's Settings button off the right
+// edge of the page. width:100% ties .main back to what its container gives
+// it; max-width still caps it on anything wider.
+{
+  // .main also appears as a one-line ordering rule (`.main { order: 1; }`)
+  // elsewhere in the sheet -- anchor on max-width so this matches the actual
+  // container rule, not that one.
+  const m = css.match(/\.main\s*\{([^}]*max-width:\s*400px[^}]*)\}/);
+  ok('.main rule exists', !!m);
+  ok('.main is tied to its container\'s width, not just capped by it',
+    !!m && /width:\s*100%/.test(m[1]), (m && m[1].replace(/\s+/g, ' ').trim().slice(0, 80)) || '');
+}
+
+// ---------- narrow layout: the top-bar icon row doesn't push Settings off-page ----------
+// Six 40px icon-btns plus their gaps don't fit next to the wordmark under
+// ~380px wide. .top-bar has justify-content:space-between but no wrap and no
+// overflow handling, and a flex item's default min-width:auto refuses to let
+// .top-actions shrink below its content size -- so the row spilled past the
+// edge of the page itself, not just the header, taking Settings (last icon
+// in the row) off-screen with it. Same fix the mode-tabs row already uses
+// for the identical problem: let the icon row scroll in its own bounded box
+// instead of forcing the page wider. Confirmed in a real browser at
+// 320/360/375px that #settingsBtn becomes directly clickable, no scroll
+// needed first.
+{
+  const blocks = [...css.matchAll(/\.top-actions\s*\{([^}]*)\}/g)].map(m => m[1]);
+  ok('.top-actions rule exists', blocks.length > 0);
+  const scrollable = blocks.some(b => /overflow-x:\s*auto/.test(b));
+  const shrinkable = blocks.some(b => /min-width:\s*0\b/.test(b));
+  ok('.top-actions gets an overflow-x:auto treatment for narrow widths',
+    scrollable, blocks.join(' | ').replace(/\s+/g, ' ').slice(0, 100));
+  ok('.top-actions is allowed to shrink below its content width (min-width:0)',
+    shrinkable);
+}
+
+// ---------- sunset's quote stays readable over its own gradient ----------
+// .quote-text is var(--text2) (a flat grey) with no override in any other
+// theme, which is fine everywhere else because the quote box has no
+// background of its own and sits on top of a solid or near-solid surface.
+// Sunset's background is a fixed-position gradient running dark purple to
+// bright orange, and .quote-container's own fixed bottom:100px always lands
+// it over the lit (orange) end. Measured in a real browser: grey-on-orange
+// there is 1.7:1 -- jsdom can't render the gradient to catch that itself, so
+// this just pins that the override exists, not what it looks like.
+{
+  const m = css.match(/\.visual-sunset\s+\.quote-text\s*\{([^}]*)\}/);
+  ok('.visual-sunset overrides .quote-text\'s colour instead of inheriting the flat --text2 grey',
+    !!m && /color:/.test(m[1]), (m && m[1].replace(/\s+/g, ' ').trim()) || 'no override found');
+}
+
 // ---------- static asset checks ----------
 const manifest = JSON.parse(fs.readFileSync('manifest.webmanifest', 'utf8'));
 ok('manifest has required fields',
@@ -1326,7 +1752,7 @@ const declared = new Set((css.match(/^\s*(--[a-z0-9-]+)\s*:/gim) || [])
 // Vars set from JS via style.setProperty aren't declared in the sheet.
 const fromJs = new Set(['--dial-d', '--ring-w', '--ui-scale', '--clock-scale', '--seg-i',
   '--d', '--time-font-custom', '--i', '--bg-dim', '--bg-blur', '--p', '--x', '--y', '--sp',
-  '--beat-ms']);
+  '--beat-ms', '--bg-vignette', '--bg-grain', '--sbw', '--c']);
 const undeclared = usedVars.filter(v => !declared.has(v) && !fromJs.has(v) &&
   !new RegExp('\\' + v + '\\s*:', 'i').test(css));
 ok('no undeclared custom properties', undeclared.length === 0, undeclared.join(', '));

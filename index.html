@@ -38,6 +38,41 @@
   <link rel="stylesheet" href="chronos.css">
 </head>
 <body class="theme-indigo">
+  <script>
+    // Pre-paint theme stamp. chronos.js sits at the end of the body and only
+    // reads saved settings once it has fetched and run — fine on a warm
+    // cache, but on a cold one (or a slow first paint) that gap is long
+    // enough for the browser to show this tag's hardcoded default (dark,
+    // indigo, no custom palette) before snapping to whatever's actually
+    // saved. Running this inline, before any later markup exists to paint,
+    // closes that gap instead of racing it. Deliberately minimal — only the
+    // settings that change on-screen colour, not layout/size ones like
+    // dialSize, which don't read as a "flash" the way a colour swap does.
+    // Keep in sync with the equivalent lines in apply().
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('chronos_s'));
+        if (!s) return;
+        var b = document.body;
+        if (s.dark === false) b.classList.add('light');
+        if (s.signature !== false) b.classList.add('signature');
+        b.classList.remove('theme-indigo');
+        b.classList.add('theme-' + (s.colorTheme || 'indigo'));
+        if (s.visualTheme && s.visualTheme !== 'default') b.classList.add('visual-' + s.visualTheme);
+        if (s.colorTheme === 'custom' && s.customColor) {
+          b.style.setProperty('--accent', s.customColor);
+          var n = parseInt(s.customColor.replace('#', ''), 16), amt = 46;
+          var r = Math.min(255, (n >> 16) + amt), g = Math.min(255, ((n >> 8) & 255) + amt), bl = Math.min(255, (n & 255) + amt);
+          b.style.setProperty('--accent2', '#' + [r, g, bl].map(function (x) { return x.toString(16).padStart(2, '0'); }).join(''));
+        }
+        if (s.useCustomPalette && s.customPalette) {
+          b.classList.add('custom-palette');
+          var map = { bg: '--bg', card: '--card', border: '--border', text: '--text', text2: '--text2' };
+          for (var k in map) if (s.customPalette[k]) b.style.setProperty(map[k], s.customPalette[k]);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <a class="skip-link" href="#dial">Skip to the timer</a>
 
   <!-- Two live regions rather than one. The timer display itself is marked
@@ -54,6 +89,9 @@
   </div>
 
   <div id="bgMedia" aria-hidden="true"></div>
+  <div id="bgDuotone" aria-hidden="true"></div>
+  <div id="bgVignette" aria-hidden="true"></div>
+  <div id="bgGrain" aria-hidden="true"></div>
   <button class="fs-exit" id="fsExit" title="Exit immersive mode (Esc)" aria-label="Exit immersive mode" data-ico="collapse"></button>
 
   <canvas id="particles" aria-hidden="true"></canvas>
@@ -66,7 +104,7 @@
   </div>
   
   <header class="top-bar" role="banner" data-reveal style="--d:0">
-    <div class="logo" id="titleEdit" role="button" tabindex="0" aria-label="Timer name, Chronos. Activate to rename." title="Double-click to rename">⏱ Chronos</div>
+    <div class="logo" id="titleEdit" role="button" tabindex="0" aria-label="Timer name, Chronos. Activate to rename." title="Double-click to rename"><i class="logo-ico" aria-hidden="true" data-ico="timer"></i><span id="titleText">Chronos</span></div>
     <nav class="top-actions" aria-label="App controls">
       <button class="icon-btn" id="themeToggleBtn" data-key="theme" title="Toggle dark/light" aria-label="Toggle dark and light mode" data-ico="moon"></button>
       <button class="icon-btn" id="voiceBtn" data-key="voice" title="Voice Control" aria-label="Voice control" aria-pressed="false" data-ico="mic"></button>
@@ -117,11 +155,11 @@
   <div class="main" role="main">
     <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="Timer mode" data-reveal style="--d:2">
       <span id="tabInd"></span>
-      <button class="mode-tab active" role="tab" id="tabStopwatch" aria-selected="true" aria-controls="dial" data-mode="stopwatch">⏱ Stopwatch</button>
-      <button class="mode-tab" role="tab" id="tabTimer" aria-selected="false" aria-controls="dial" data-mode="timer">⏲ Timer</button>
-      <button class="mode-tab" role="tab" id="tabPomodoro" aria-selected="false" aria-controls="dial" data-mode="pomodoro">🍅 Pomodoro</button>
-      <button class="mode-tab hidden" role="tab" id="tabClock" aria-selected="false" aria-controls="dial" data-mode="clock">🕐 Clock</button>
-      <button class="mode-tab hidden" role="tab" id="tabMetronome" aria-selected="false" aria-controls="dial" data-mode="metronome">🎵 Metronome</button>
+      <button class="mode-tab active" role="tab" id="tabStopwatch" aria-selected="true" aria-controls="dial" data-mode="stopwatch"><i class="tab-ico" aria-hidden="true" data-ico="timer"></i>Stopwatch</button>
+      <button class="mode-tab" role="tab" id="tabTimer" aria-selected="false" aria-controls="dial" data-mode="timer"><i class="tab-ico" aria-hidden="true" data-ico="hourglass"></i>Timer</button>
+      <button class="mode-tab" role="tab" id="tabPomodoro" aria-selected="false" aria-controls="dial" data-mode="pomodoro"><i class="tab-ico" aria-hidden="true" data-ico="tomato"></i>Pomodoro</button>
+      <button class="mode-tab hidden" role="tab" id="tabClock" aria-selected="false" aria-controls="dial" data-mode="clock"><i class="tab-ico" aria-hidden="true" data-ico="clock"></i>Clock</button>
+      <button class="mode-tab hidden" role="tab" id="tabMetronome" aria-selected="false" aria-controls="dial" data-mode="metronome"><i class="tab-ico" aria-hidden="true" data-ico="tap"></i>Metronome</button>
     </div>
     
     <div class="dial-wrap" data-reveal style="--d:3">
@@ -151,6 +189,8 @@
         </div>
         <div class="time" id="timeDisplay" aria-hidden="true"></div>
         <div class="time-label" id="timeLabel">Stopwatch</div>
+        <div class="sig-pop" id="sigPop" role="group" aria-label="Time signature" hidden></div>
+        <div class="metro-tempo-name hidden" id="metroTempoName" aria-hidden="true"></div>
         <span class="drag-hint" aria-hidden="true">Drag ring to set time<br>Double-click to edit</span>
       </div>
     </div>
@@ -177,10 +217,27 @@
       </div>
     </div>
 
+    <div class="until" id="untilBox" role="group" aria-label="Time until">
+      <div class="until-list" id="untilList" aria-live="off"></div>
+      <form class="until-add" id="untilForm" autocomplete="off">
+        <input type="text" class="until-input" id="untilInput" placeholder="Time until… e.g. 10pm" maxlength="12" aria-label="Time until. Type a time, like 10pm or 22:30, and press Enter.">
+      </form>
+    </div>
+
     <div class="controls" role="group" aria-label="Timer controls">
       <button class="ctrl-btn" id="lapBtn" title="Lap" aria-label="Record lap" data-ico="flag"></button>
       <button class="ctrl-btn primary" id="playBtn" title="Start" aria-label="Start" data-ico="play"></button>
       <button class="ctrl-btn" id="resetBtn" title="Reset" aria-label="Reset" data-ico="reset"></button>
+    </div>
+
+    <!-- In the flow under the controls, collapsed to zero height until shown,
+         so it can never sit on top of them (it used to be position:fixed and
+         landed on the controls on any window short enough). -->
+    <div class="quote-container" id="quoteBox" role="note" aria-label="Quote">
+      <div class="quote-in">
+        <div class="quote-text" id="quoteText"></div>
+        <div class="quote-author" id="quoteAuthor"></div>
+      </div>
     </div>
     
   </div>
@@ -189,7 +246,7 @@
     <div class="presets hidden" id="presets"></div>
     <div class="metro-presets hidden" id="metroPresets" role="group" aria-label="Metronome presets"></div>
     
-    <div class="laps-container" id="lapsContainer">
+    <div class="laps-container empty" id="lapsContainer">
       <div class="laps-header">
         <span class="laps-title">Laps</span>
         <div class="laps-actions">
@@ -216,11 +273,6 @@
     <button class="ambient-btn" data-sound="cafe" aria-pressed="false" title="Café">☕</button>
   </div>
   
-  <div class="quote-container" id="quoteBox" role="note" aria-label="Quote">
-    <div class="quote-text" id="quoteText"></div>
-    <div class="quote-author" id="quoteAuthor"></div>
-  </div>
-  
   <div class="panel-overlay" id="settingsOverlay" aria-hidden="true"></div>
   
   <div class="panel" id="settingsPanel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -230,6 +282,20 @@
     </div>
     <div class="panel-content">
       <div class="panel-tier">Essentials</div>
+
+      <div class="panel-section">
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="bookmark"></i>Presets</h3>
+        <p class="sub-note">Save everything in Settings under a name and come back to it in one tap. Your background file, quotes and saved tempos stay put — a preset only carries the settings.</p>
+        <div class="preset-list" id="userPresetList"></div>
+        <p class="preset-note" id="presetNote" role="status" aria-live="polite" hidden>
+          <span id="presetNoteText"></span>
+          <button class="preset-undo" id="presetUndoBtn" type="button">Undo</button>
+        </p>
+        <div class="quote-add-row">
+          <input type="text" class="time-input quote-input" id="newPresetName" placeholder="Name this setup, e.g. Deep Focus" maxlength="40" aria-label="Preset name" autocomplete="off">
+          <button class="lap-action-btn" id="savePresetBtn" type="button">Save</button>
+        </div>
+      </div>
 
       <div class="panel-section">
         <h3><i class="sec-ico" aria-hidden="true" data-ico="palette"></i>Appearance</h3>
@@ -244,6 +310,46 @@
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="ring"></i><span class="setting-label">Progress Ring<i class="row-sub">The sweeping arc and its head</i></span>
           <div class="toggle active" id="ringToggle"></div>
+        </div>
+        <div class="dep" id="ringDep"><div class="dep-in">
+          <div class="setting-row">
+            <i class="row-ico" aria-hidden="true" data-ico="timer"></i><span class="setting-label">Stopwatch Lap<i class="row-sub">Minutes for the ring to go round once on the stopwatch, then it starts again from the top</i></span>
+            <input type="number" class="time-input" id="ringLapInput" value="60" min="1" max="720" step="1" inputmode="numeric" aria-label="Stopwatch lap in minutes">
+          </div>
+        </div></div>
+        <div class="sel" id="glowSel">
+          <div class="sel-head">
+            <i class="sel-ico" aria-hidden="true" data-ico="spark"></i>
+            <div class="sel-info">
+              <div class="sel-label">Reduce Glow</div>
+              <div class="sel-value"><span id="reduceGlowStatus">Off</span></div>
+            </div>
+            <div class="toggle" id="reduceGlowToggle" title="Turn off every glow below at once" aria-label="Reduce Glow"></div>
+            <i class="sel-arrow" aria-hidden="true"></i>
+          </div>
+          <div class="sel-body"><div class="sel-inner">
+            <p class="sub-note">Switch on any glow below to remove just that one. Reduce Glow itself removes them all at once, and each keeps its own setting for when you switch it back off.</p>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Dial Glow<i class="row-sub">The halo around the dial while running, and the accent tint on its face</i></span>
+              <div class="toggle" id="bloomToggle"></div>
+            </div>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="image"></i><span class="setting-label">Background Glow<i class="row-sub">The accent wash and shaded edges behind the page — on leaves a flat, solid colour</i></span>
+              <div class="toggle" id="glowBgToggle"></div>
+            </div>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="bulb"></i><span class="setting-label">Ring Glow<i class="row-sub">The light along the progress arc and its head</i></span>
+              <div class="toggle" id="glowRingToggle"></div>
+            </div>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="sun"></i><span class="setting-label">Readout Glow<i class="row-sub">The soft glow on the time while running</i></span>
+              <div class="toggle" id="glowReadoutToggle"></div>
+            </div>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Button Glow<i class="row-sub">The pulsing glow on the primary button, ambient sounds, and the metronome</i></span>
+              <div class="toggle" id="glowButtonToggle"></div>
+            </div>
+          </div></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="tick"></i><span class="setting-label">Dial Ticks<i class="row-sub">Sixty minute marks around the face</i></span>
@@ -305,7 +411,7 @@
           <div class="sel-body"><div class="sel-inner">
             <div class="color-grid" id="colorGrid"></div>
             <div class="setting-row">
-              <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Custom colour</span>
+              <i class="row-ico" aria-hidden="true" data-ico="sliders"></i><span class="setting-label">Custom colour</span>
               <input type="color" class="color-picker-input" id="customColorPicker" value="#6366f1">
             </div>
           </div></div>
@@ -316,26 +422,26 @@
         </div>
         <div class="dep" id="customPaletteBlock"><div class="dep-in">
           <div class="setting-row">
-            <span class="setting-label">Background</span>
+            <i class="row-ico" aria-hidden="true" data-ico="image"></i><span class="setting-label">Background</span>
             <input type="color" class="color-picker-input" id="paletteBgPicker" value="#0a0a0f">
           </div>
           <div class="setting-row">
-            <span class="setting-label">Card</span>
+            <i class="row-ico" aria-hidden="true" data-ico="layers"></i><span class="setting-label">Card</span>
             <input type="color" class="color-picker-input" id="paletteCardPicker" value="#12121a">
           </div>
           <div class="setting-row">
-            <span class="setting-label">Border</span>
+            <i class="row-ico" aria-hidden="true" data-ico="shield"></i><span class="setting-label">Border</span>
             <input type="color" class="color-picker-input" id="paletteBorderPicker" value="#1e1e2e">
           </div>
           <div class="setting-row">
-            <span class="setting-label">Text</span>
+            <i class="row-ico" aria-hidden="true" data-ico="type"></i><span class="setting-label">Text</span>
             <input type="color" class="color-picker-input" id="paletteTextPicker" value="#ffffff">
           </div>
           <div class="setting-row">
-            <span class="setting-label">Secondary Text</span>
+            <i class="row-ico" aria-hidden="true" data-ico="quote"></i><span class="setting-label">Secondary Text</span>
             <input type="color" class="color-picker-input" id="paletteText2Picker" value="#888888">
           </div>
-          <p class="sub-note">Overrides Dark Mode, Visual Theme and Accent Color wherever those elements read the base palette. A few atmospheric themes (Matrix, Aurora, Sunset, Neon, Glass, Retro, Cosmic) paint their own background regardless.</p>
+          <p class="sub-note">Overrides Dark Mode and the Visual Theme's own colours — page, dial face and clock text — in every theme. Each theme keeps its effects (glows, animations, overlays), just in your colours.</p>
           <button class="panel-btn" id="paletteResetBtn">Reset to Theme</button>
         </div></div>
         <div class="slider-row">
@@ -344,12 +450,12 @@
           <span class="slider-val" id="dialSizeVal">280px</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" aria-hidden="true" data-ico="type"></i>Clock Text</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="tag"></i>Clock Text</label>
           <input type="range" class="slider" id="clockScaleSlider" min="60" max="130" value="100">
           <span class="slider-val" id="clockScaleVal">100%</span>
         </div>
         <div class="slider-row">
-          <label><i class="row-ico" aria-hidden="true" data-ico="layers"></i>Interface Text</label>
+          <label><i class="row-ico" aria-hidden="true" data-ico="code"></i>Interface Text</label>
           <input type="range" class="slider" id="uiScaleSlider" min="85" max="125" value="100">
           <span class="slider-val" id="uiScaleVal">100%</span>
         </div>
@@ -394,7 +500,7 @@
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="tap"></i><span class="setting-label">Metronome</span>
-          <div class="toggle active" id="modeMetronomeToggle"></div>
+          <div class="toggle" id="modeMetronomeToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Keep Modes Running<i class="row-sub">Leaving a mode lets its clock carry on. Off: it pauses and picks up where you left it.</i></span>
@@ -425,7 +531,7 @@
         </div></div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="reset"></i><span class="setting-label">Rounds</span>
-          <input type="number" class="time-input" id="roundsInput" value="4" min="1" style="width:50px">
+          <input type="number" class="time-input" id="roundsInput" value="4" min="1">
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Auto-start breaks</span>
@@ -434,10 +540,49 @@
       </div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" aria-hidden="true" data-ico="tap"></i>Metronome</h3>
-        <p class="sub-note">Tempo and time signature live on the dial and its presets. These two apply underneath whichever one is playing.</p>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="clock"></i>Clock</h3>
+        <div class="dep" id="clockDep"><div class="dep-in">
+          <p class="sub-note">Which time the dial reads. Local follows this device.</p>
+          <div class="clock-grid" id="tzGrid"></div>
+          <div class="setting-row">
+            <i class="row-ico" aria-hidden="true" data-ico="calendar"></i><span class="setting-label">Show Date</span>
+            <div class="toggle active" id="clockDateToggle"></div>
+          </div>
+        </div></div>
+        <p class="sub-note" id="clockOffNote">Turn on Clock under Modes to use the dial as a clock.</p>
         <div class="setting-row">
-          <span class="setting-label">Subdivision<i class="row-sub">Extra clicks between each beat</i></span>
+          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
+          <div class="toggle" id="hour12Toggle"></div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="ring"></i><span class="setting-label">Show Seconds</span>
+          <div class="toggle" id="clockSecondsToggle"></div>
+        </div>
+        <p class="sub-note">Format applies to the clock face and the world clocks.</p>
+      </div>
+
+      <div class="panel-section">
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="tap"></i>Metronome</h3>
+        <p class="sub-note">Tempo lives on the dial. You can also tap the time signature under it to switch between common ones.</p>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="tap"></i><span class="setting-label">Beats per Bar<i class="row-sub">The top number</i></span>
+          <div class="metro-step" role="group" aria-label="Beats per bar">
+            <button class="metro-step-btn" id="metroNumDown" type="button" aria-label="Fewer beats">−</button>
+            <span class="metro-step-val" id="metroNumVal" aria-live="polite">4</span>
+            <button class="metro-step-btn" id="metroNumUp" type="button" aria-label="More beats">+</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="sliders"></i><span class="setting-label">Beat Note<i class="row-sub">The bottom number</i></span>
+          <div class="seg" id="metroBeatNoteSeg" role="group" aria-label="Beat note">
+            <button class="seg-btn" type="button" data-den="2" title="Half note">2</button>
+            <button class="seg-btn is-active" type="button" data-den="4" title="Quarter note">4</button>
+            <button class="seg-btn" type="button" data-den="8" title="Eighth note">8</button>
+            <button class="seg-btn" type="button" data-den="16" title="Sixteenth note">16</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="columns"></i><span class="setting-label">Subdivision<i class="row-sub">Extra clicks between each beat</i></span>
           <div class="seg" id="metroSubSeg" role="group" aria-label="Subdivision">
             <button class="seg-btn is-active" data-sub="1">None</button>
             <button class="seg-btn" data-sub="2">2</button>
@@ -449,21 +594,82 @@
           <i class="row-ico" aria-hidden="true" data-ico="volume"></i><span class="setting-label">Distinct beat sounds<i class="row-sub">Accent beat one, and give subdivisions their own softer tick</i></span>
           <div class="toggle active" id="metroSoundToggle"></div>
         </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="hourglass"></i><span class="setting-label">Practice Timer<i class="row-sub">Stops the metronome by itself after a set time</i></span>
+          <div class="toggle" id="metroTimerToggle"></div>
+        </div>
+        <div class="dep" id="metroTimerDep"><div class="dep-in">
+          <div class="metro-export-row">
+            <span class="metro-export-lbl" id="metroTimerLbl">Stop after</span>
+            <div class="metro-export-dur" role="group" aria-labelledby="metroTimerLbl">
+              <input type="text" class="time-input" id="metroTimerHr" value="0" inputmode="numeric" maxlength="1" aria-label="Hours" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">hr</span>
+              <input type="text" class="time-input" id="metroTimerMin" value="05" inputmode="numeric" maxlength="2" aria-label="Minutes" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">min</span>
+              <input type="text" class="time-input" id="metroTimerSec" value="00" inputmode="numeric" maxlength="2" aria-label="Seconds" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">sec</span>
+            </div>
+          </div>
+          <p class="sub-note metro-export-info" id="metroTimerInfo" aria-live="polite"></p>
+        </div></div>
+        <div class="setting-row">
+          <span class="setting-label">Click Sound</span>
+        </div>
+        <div class="sound-grid" id="metroSoundGrid">
+          <div class="sound-opt active" data-sound="click">🖱️ Click</div>
+          <div class="sound-opt" data-sound="wood">🪵 Wood Block</div>
+          <div class="sound-opt" data-sound="beep">📟 Beep</div>
+          <div class="sound-opt" data-sound="cowbell">🔔 Cowbell</div>
+          <div class="sound-opt" data-sound="digital">💠 Digital</div>
+          <div class="sound-opt" data-sound="rimshot">🥁 Rimshot</div>
+          <div class="sound-opt sound-opt-custom" data-sound="custom">🎵 Your Own Sound…</div>
+        </div>
+        <div class="metro-custom" id="metroCustomRow" hidden>
+          <span class="metro-custom-name" id="metroCustomName"></span>
+          <button class="lap-action-btn" id="metroCustomReplace" type="button">Replace</button>
+          <button class="lap-action-btn" id="metroCustomRemove" type="button">Remove</button>
+        </div>
+        <p class="sub-note metro-custom-note" id="metroCustomNote" role="status" hidden></p>
+        <input type="file" id="metroSoundFile" accept="audio/*,.wav,.mp3,.ogg,.oga,.m4a,.aac,.flac,.webm" hidden>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="download"></i><span class="setting-label">Export Audio<i class="row-sub">Download the current tempo, meter and sound as a WAV click track, up to 3 hours long. Rounded to whole bars, so it loops cleanly.</i></span>
+        </div>
+        <div class="metro-export">
+          <div class="metro-export-row">
+            <span class="metro-export-lbl" id="metroExportLbl">Length</span>
+            <div class="metro-export-dur" role="group" aria-labelledby="metroExportLbl">
+              <input type="text" class="time-input" id="metroExportHr" value="0" inputmode="numeric" maxlength="1" aria-label="Hours" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">hr</span>
+              <input type="text" class="time-input" id="metroExportMin" value="05" inputmode="numeric" maxlength="2" aria-label="Minutes" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">min</span>
+              <input type="text" class="time-input" id="metroExportSec" value="00" inputmode="numeric" maxlength="2" aria-label="Seconds" autocomplete="off">
+              <span class="metro-export-unit" aria-hidden="true">sec</span>
+            </div>
+          </div>
+          <div class="metro-export-foot">
+            <p class="sub-note metro-export-info" id="metroExportInfo" aria-live="polite"></p>
+            <button class="lap-action-btn" id="metroExportBtn" type="button">Download WAV</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="layers"></i><span class="setting-label">Show Saved Presets<i class="row-sub">The named tempo list, off the dial's rail by default</i></span>
+          <div class="toggle" id="metroPresetsToggle"></div>
+        </div>
       </div>
 
       <div class="panel-section">
         <h3><i class="sec-ico" aria-hidden="true" data-ico="columns"></i>Layout &amp; Elements</h3>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="chart"></i><span class="setting-label">Show Analytics Card</span>
-          <div class="toggle active" id="analyticsToggle"></div>
+          <div class="toggle" id="analyticsToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="sound"></i><span class="setting-label">Show Ambient Sounds Bar</span>
-          <div class="toggle active" id="ambientBarToggle"></div>
+          <div class="toggle" id="ambientBarToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="quote"></i><span class="setting-label">Show Motivational Quotes</span>
-          <div class="toggle active" id="quotesToggle"></div>
+          <div class="toggle" id="quotesToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="collapse"></i><span class="setting-label">Compact Mode<i class="row-sub">Tighter spacing throughout</i></span>
@@ -475,7 +681,7 @@
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="tag"></i><span class="setting-label">Focus On Card<i class="row-sub">Tag what the current session is for</i></span>
-          <div class="toggle active" id="tagCardToggle"></div>
+          <div class="toggle" id="tagCardToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="swap"></i><span class="setting-label">Swap Rail Sides</span>
@@ -494,7 +700,7 @@
           <input type="range" class="slider" id="goalSlider" min="15" max="480" step="15" value="120">
           <span class="slider-val" id="goalVal">2h</span>
         </div>
-        <p class="sub-note">Top Bar Order</p>
+        <p class="sub-note sub-cap">Top Bar Order</p>
         <div class="order-list" id="topBarOrderList"></div>
       </div>
 
@@ -536,34 +742,12 @@
       <div class="panel-tier">Advanced</div>
 
       <div class="panel-section">
-        <h3><i class="sec-ico" aria-hidden="true" data-ico="clock"></i>Clock</h3>
-        <div class="dep" id="clockDep"><div class="dep-in">
-          <p class="sub-note">Which time the dial reads. Local follows this device.</p>
-          <div class="clock-grid" id="tzGrid"></div>
-          <div class="setting-row">
-            <i class="row-ico" aria-hidden="true" data-ico="calendar"></i><span class="setting-label">Show Date</span>
-            <div class="toggle active" id="clockDateToggle"></div>
-          </div>
-        </div></div>
-        <p class="sub-note" id="clockOffNote">Turn on Clock under Modes to use the dial as a clock.</p>
-        <div class="setting-row">
-          <i class="row-ico" aria-hidden="true" data-ico="clock"></i><span class="setting-label">12-Hour Format</span>
-          <div class="toggle" id="hour12Toggle"></div>
-        </div>
-        <div class="setting-row">
-          <i class="row-ico" aria-hidden="true" data-ico="ring"></i><span class="setting-label">Show Seconds</span>
-          <div class="toggle" id="clockSecondsToggle"></div>
-        </div>
-        <p class="sub-note">Format applies to the clock face and the world clocks.</p>
-      </div>
-
-      <div class="panel-section">
         <h3><i class="sec-ico" aria-hidden="true" data-ico="globe"></i>World Clocks</h3>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="globe"></i><span class="setting-label">Show World Clocks</span>
-          <div class="toggle active" id="worldToggle"></div>
+          <div class="toggle" id="worldToggle"></div>
         </div>
-        <div class="dep open" id="worldDep"><div class="dep-in">
+        <div class="dep" id="worldDep"><div class="dep-in">
           <p class="sub-note">Pick up to 6 cities</p>
           <div class="clock-grid" id="clockGrid"></div>
         </div></div>
@@ -589,6 +773,79 @@
           <span class="slider-val" id="bgBlurVal">0px</span>
         </div>
         <p class="sub-note" id="bgBlurNote" style="display:none">Heavy blur on video is a per-frame convolution — drop it below 14px if playback stutters.</p>
+
+        <div class="sel" id="bgFxSel">
+          <div class="sel-head">
+            <i class="sel-ico" aria-hidden="true" data-ico="spark"></i>
+            <div class="sel-info">
+              <div class="sel-label">Window Effects</div>
+              <div class="sel-value"><span id="bgFxStatus">Off</span></div>
+            </div>
+            <i class="sel-arrow" aria-hidden="true"></i>
+          </div>
+          <div class="sel-body"><div class="sel-inner">
+            <p class="sub-note">One-tap looks — each still leaves every slider below open to tweak.</p>
+            <div class="bgfx-presets" id="bgFxPresets">
+              <button class="chip" data-preset="default">Default</button>
+              <button class="chip" data-preset="cinema">Cinema</button>
+              <button class="chip" data-preset="noir">Noir</button>
+              <button class="chip" data-preset="vintage">Vintage</button>
+              <button class="chip" data-preset="dream">Dream</button>
+              <button class="chip" data-preset="cyber">Cyber</button>
+              <button class="chip" data-preset="sunset">Sunset</button>
+            </div>
+
+            <p class="sub-note sub-cap">Filters</p>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="sun"></i>Brightness</label>
+              <input type="range" class="slider" id="bgBrightSlider" min="40" max="160" value="100">
+              <span class="slider-val" id="bgBrightVal">100%</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="target"></i>Contrast</label>
+              <input type="range" class="slider" id="bgContrastSlider" min="40" max="160" value="100">
+              <span class="slider-val" id="bgContrastVal">100%</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="palette"></i>Saturation</label>
+              <input type="range" class="slider" id="bgSaturateSlider" min="0" max="200" value="100">
+              <span class="slider-val" id="bgSaturateVal">100%</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="layers"></i>Hue</label>
+              <input type="range" class="slider" id="bgHueSlider" min="0" max="360" value="0">
+              <span class="slider-val" id="bgHueVal">0°</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="bulb"></i>Grayscale</label>
+              <input type="range" class="slider" id="bgGraySlider" min="0" max="100" value="0">
+              <span class="slider-val" id="bgGrayVal">0%</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="clock"></i>Sepia</label>
+              <input type="range" class="slider" id="bgSepiaSlider" min="0" max="100" value="0">
+              <span class="slider-val" id="bgSepiaVal">0%</span>
+            </div>
+
+            <p class="sub-note sub-cap">Effects</p>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="ring"></i>Vignette</label>
+              <input type="range" class="slider" id="bgVignetteSlider" min="0" max="100" value="0">
+              <span class="slider-val" id="bgVignetteVal">0%</span>
+            </div>
+            <div class="slider-row">
+              <label><i class="row-ico" aria-hidden="true" data-ico="spark"></i>Grain</label>
+              <input type="range" class="slider" id="bgGrainSlider" min="0" max="100" value="0">
+              <span class="slider-val" id="bgGrainVal">0%</span>
+            </div>
+            <div class="setting-row">
+              <i class="row-ico" aria-hidden="true" data-ico="swap"></i><span class="setting-label">Duotone<i class="row-sub">Tints the background with your accent colour</i></span>
+              <div class="toggle" id="bgDuotoneToggle"></div>
+            </div>
+
+            <button class="panel-btn" id="bgFxResetBtn">Reset Effects</button>
+          </div></div>
+        </div>
 
         <div class="bg-video" id="bgVideoCtl" style="display:none">
           <div class="setting-row">
@@ -645,7 +902,7 @@
       </div>
       
       <div class="panel-section">
-        <h3><i class="sec-ico" aria-hidden="true" data-ico="sliders"></i>Advanced</h3>
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="sliders"></i>Behavior</h3>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="spark"></i><span class="setting-label">Motion<i class="row-sub">Full ignores your system reduce-motion setting</i></span>
           <div class="seg" id="motionSeg" role="group" aria-label="Motion">
@@ -653,6 +910,10 @@
             <button class="seg-btn" data-motion="full">Full</button>
             <button class="seg-btn" data-motion="none">Off</button>
           </div>
+        </div>
+        <div class="setting-row">
+          <i class="row-ico" aria-hidden="true" data-ico="play"></i><span class="setting-label">Opening Animation<i class="row-sub">The splash and fade-in when the page loads. Off opens straight to the clock.</i></span>
+          <div class="toggle" id="introToggle"></div>
         </div>
         <div class="setting-row">
           <i class="row-ico" aria-hidden="true" data-ico="bulb"></i><span class="setting-label">Tips &amp; Hints</span>
@@ -670,9 +931,11 @@
           <i class="row-ico" aria-hidden="true" data-ico="shield"></i><span class="setting-label">Confirm Reset<i class="row-sub">Ask before clearing a running session</i></span>
           <div class="toggle" id="confirmToggle"></div>
         </div>
-        <div class="setting-row">
-          <span class="setting-label">Custom CSS</span>
-        </div>
+      </div>
+
+      <div class="panel-section">
+        <h3><i class="sec-ico" aria-hidden="true" data-ico="code"></i>Custom CSS</h3>
+        <p class="sub-note">Applied live, on top of everything above.</p>
         <textarea class="custom-css-input" id="customCssInput" placeholder="/* Write your own CSS here — applied live */"></textarea>
       </div>
 

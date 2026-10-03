@@ -16,6 +16,11 @@
 @property --text2  { syntax: '<color>'; inherits: true; initial-value: #888; }
 @property --edge   { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,.07); }
 
+/* The hundredths' size relative to the main digits. Typed so it can transition
+   on .time and be inherited mid-flight: a font-size transition on .ms itself
+   fights the parent's (the child restarts every frame and ends up wrong). */
+@property --ms-em { syntax: '<number>'; inherits: true; initial-value: 0.44; }
+
 body {
   transition: --bg var(--t3) var(--e-out), --card var(--t3) var(--e-out), --border var(--t3) var(--e-out),
               --text var(--t3) var(--e-out), --text2 var(--t3) var(--e-out), --edge var(--t3) var(--e-out);
@@ -152,7 +157,12 @@ body {
   border-radius: 4px;
 }
 
-/* Ambient light from above — themes with their own atmosphere opt out */
+/* Ambient light from above — a two-blob accent-tinted wash on top of the flat
+   --bg colour, controllable from Reduce Glow's Background Glow row (see
+   REDUCED GLOW below). Themes that paint their own atmosphere on this
+   pseudo-element (aurora, glass, cosmic, kymograph, sunset's dial) are
+   untouched, since each is its own more-specific selector regardless of what
+   this base rule paints. */
 body::before {
   content: '';
   position: fixed;
@@ -249,6 +259,12 @@ body.visual-sunset::before {
   transform: none;
 }
 
+/* Opening Animation off — see boot(). Not just the [data-reveal] fade-up: the
+   first apply() also sets the dial's size, which otherwise grows into place
+   (with the readout) over --t4 on every load. For these first frames nothing
+   transitions; anything already in flight is cancelled straight to its end. */
+.no-intro *, .no-intro *::before, .no-intro *::after { transition: none !important; }
+
 /* ========== TYPOGRAPHY UTILITIES ========== */
 .time-label,
 .pomo-stat-label,
@@ -281,11 +297,26 @@ body.visual-sunset::before {
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: calc(15px * var(--ui-scale));
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
 }
+
+/* Matches the mode tabs' icon size — both sit inline beside their own label
+   rather than in the settings panel's fixed gutter. Accent-coloured because
+   the wordmark is the one place an icon is branding rather than a control. */
+.logo-ico {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.logo-ico svg { width: 17px; height: 17px; }
 
 .top-actions {
   display: flex;
@@ -380,8 +411,24 @@ body.visual-sunset::before {
   flex-shrink: 0;
 }
 
+/* The live dot pulses through background-color and box-shadow, not the
+   transform/opacity pair vPulse uses. Those two are compositor animations: the
+   moment one starts it promotes the dot to its own layer, and inside a card
+   that has a backdrop blur (over a background, or in any theme with blur on
+   its chrome) that re-creates the card's render surface — a flash of seam over
+   the card on the exact frame play is pressed. This is the only card with an
+   animation that starts then, which is why it was only ever this one. Same
+   look: the dot dims to half and swells about a fifth. */
 .running .analytics-mini h4::before {
-  animation: vPulse 1.8s var(--e-io) infinite;
+  animation: liveDot 1.8s var(--e-io) infinite;
+}
+
+@keyframes liveDot {
+  0%, 100% { background-color: var(--accent); box-shadow: 0 0 0 0 transparent; }
+  50% {
+    background-color: color-mix(in srgb, var(--accent) 50%, transparent);
+    box-shadow: 0 0 0 .5px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
 }
 
 .analytics-row {
@@ -456,6 +503,13 @@ body.visual-sunset::before {
 
 /* ========== MAIN CONTAINER ========== */
 .main {
+  /* .stage centres its children by their own content width (align-items:
+     center), not by stretching them, so max-width alone is only ever an
+     upper bound -- it does nothing to stop .main growing to fit whatever
+     its content (mainly the mode-tabs strip) demands, even past what .stage
+     actually has room for. width:100% ties it back to the available space;
+     max-width still caps it on anything wider. */
+  width: 100%;
   max-width: 400px;
   margin: 0 auto;
   display: flex;
@@ -494,10 +548,19 @@ body.visual-sunset::before {
 .mode-tab {
   position: relative;
   z-index: 1;
+  /* Icon and label as a flex row. The tabs used emoji before, which sat in
+     the text flow and needed no layout of its own — but emoji are rendered by
+     the OS font, so they carried a completely different visual language
+     (filled, multi-colour, platform-specific) from the drawn line-art SVG set
+     used everywhere else in the app. Now they use the same icon() glyphs the
+     matching Modes settings rows use. */
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   /* Never wrap: #tabInd is sized from offsetHeight, so a two-line tab also
      stretches the indicator pill and the whole row with it. */
   white-space: nowrap;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border: none;
   background: transparent;
   color: var(--text2);
@@ -508,6 +571,17 @@ body.visual-sunset::before {
   letter-spacing: .01em;
   transition: all var(--t2) var(--ease);
 }
+
+/* Slightly smaller than the 19px settings icons — a tab's icon sits inline
+   with its own label rather than in a fixed-width gutter, so it wants to
+   match the text's optical weight, not the panel's column rhythm. */
+.tab-ico {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.tab-ico svg { width: 16px; height: 16px; }
 
 .mode-tab.active {
   background: transparent;
@@ -565,6 +639,7 @@ body.visual-sunset::before {
 }
 
 .running #bloom { opacity: .55; }
+#bloom.hidden { display: none; }
 .running .dial { box-shadow: var(--lift), var(--glow); }
 
 .ring-svg {
@@ -647,7 +722,7 @@ body.visual-sunset::before {
   cursor: pointer;
   /* Same duration AND same curve as .dial's width/height, or the text visibly
      races the dial when --dial-d changes (--e-out front-loads, --ease doesn't). */
-  transition: font-size var(--t4) var(--ease), color var(--t3) var(--ease), text-shadow var(--t4) var(--e-out);
+  transition: font-size var(--t4) var(--ease), --ms-em var(--t4) var(--ease), color var(--t3) var(--ease), text-shadow var(--t4) var(--e-out);
   z-index: 2;
 }
 
@@ -657,7 +732,7 @@ body.visual-sunset::before {
 }
 
 .time .ms {
-  font-size: 0.44em;
+  font-size: calc(var(--ms-em) * 1em);
   opacity: .45;
 }
 
@@ -714,6 +789,19 @@ body.visual-sunset::before {
   margin-top: 12px;
   z-index: 2;
 }
+
+/* A plain word ("Andante"), not tracked-out caps like .time-label above it —
+   it reads as the tempo's name, not as a unit label. */
+.metro-tempo-name {
+  font-size: calc(13px * var(--ui-scale));
+  letter-spacing: .02em;
+  color: var(--text2);
+  opacity: .75;
+  margin-top: 4px;
+  z-index: 2;
+}
+
+.metro-tempo-name.hidden { display: none; }
 
 /* ========== SPLIT DISPLAY ========== */
 .split-display {
@@ -823,6 +911,123 @@ body.visual-sunset::before {
   margin-top: 4px;
 }
 
+/* ========== TIME UNTIL (clock mode) ==========
+   Sits where the pomodoro stats sit in their mode, and borrows their type so
+   the two read as the same family: a big mono figure over a tracked caption. */
+.until {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+  margin: var(--s4) 0 0;
+}
+
+.mode-clock .until { display: flex; }
+
+.until-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s3) var(--s5);
+}
+
+.until-row {
+  position: relative;
+  text-align: center;
+  padding: 0 4px;
+  animation: untilIn .42s var(--e-out);
+}
+
+@keyframes untilIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.until-val {
+  font-family: var(--font-mono);
+  font-size: calc(24px * var(--ui-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.until-row.now .until-val { color: var(--accent); }
+
+.until-lbl {
+  font-size: calc(10px * var(--ui-scale));
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--text2);
+  margin-top: 4px;
+  white-space: nowrap;
+}
+
+.until-x {
+  position: absolute;
+  top: -6px;
+  right: -14px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text2);
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t2) var(--e-out), color var(--t2), background-color var(--t2);
+}
+
+.until-row:hover .until-x,
+.until-x:focus-visible { opacity: .8; }
+.until-x:hover {
+  opacity: 1;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Touch screens have no hover to reveal it. */
+@media (hover: none) { .until-x { opacity: .55; } }
+
+.until-add { margin: 0; }
+
+.until-input {
+  width: calc(190px * var(--ui-scale));
+  padding: 7px 15px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: calc(12px * var(--ui-scale));
+  text-align: center;
+  transition: border-color var(--t2) var(--e-out), background-color var(--t2);
+}
+
+.until-input::placeholder { color: var(--text2); opacity: .8; }
+.until-input:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.until-input:focus { outline: none; border-color: var(--accent); }
+.until-input:disabled { opacity: .45; cursor: not-allowed; }
+
+.until-input.bad {
+  border-color: #ef4444;
+  animation: untilShake .32s var(--e-out);
+}
+
+@keyframes untilShake {
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.fullscreen .until { display: none !important; }
+.fs-out .until {
+  opacity: 0;
+  animation: fsChromeIn .46s var(--e-out) .3s forwards;
+}
+
 /* ========== CONTROLS ========== */
 .controls {
   display: flex;
@@ -926,7 +1131,8 @@ body.visual-sunset::before {
   margin-top: 20px;
 }
 
-.laps-container.hidden {
+.laps-container.hidden,
+.laps-container.empty {
   display: none;
 }
 
@@ -1098,21 +1304,32 @@ body.visual-sunset::before {
 }
 
 /* ========== QUOTE ========== */
+/* In the flow under the controls, not position:fixed. Fixed at bottom:100px it
+   landed on the controls or the Pomodoro buttons on any window short enough
+   (1366x768 and 1440x900 among them). Collapsed to a zero-height row until
+   shown, the same 0fr -> 1fr pattern as the settings sections, so it takes no
+   room while hidden and opens its own space below the buttons when it
+   appears. */
 .quote-container {
-  position: fixed;
-  bottom: 100px;
-  left: 50%;
-  text-align: center;
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
   max-width: 400px;
+  margin: 0 auto;
+  text-align: center;
   opacity: 0;
-  transform: translateX(-50%) translateY(12px);
-  transition: opacity .8s var(--e-out), transform .8s var(--e-out);
-  z-index: 5;
+  transform: translateY(12px);
+  transition: grid-template-rows .8s var(--e-out), margin-top .8s var(--e-out),
+              opacity .8s var(--e-out), transform .8s var(--e-out);
 }
 
+.quote-in { min-height: 0; overflow: hidden; }
+
 .quote-container.show {
+  grid-template-rows: 1fr;
+  margin-top: var(--s5);
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 
 .quote-text {
@@ -1456,6 +1673,60 @@ body.visual-sunset::before {
   box-shadow: 0 0 0 2px var(--bg), 0 0 18px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+/* ---------- Metronome audio export ---------- */
+.metro-export { margin: 4px 0 6px; }
+
+.metro-export-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.metro-export-lbl {
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text2);
+}
+
+.metro-export-dur {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 0 auto;
+}
+
+.metro-export-dur .time-input {
+  width: 40px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metro-export-dur .time-input.bad { box-shadow: inset 0 0 0 1px #ef4444; }
+
+.metro-export-unit {
+  font-size: calc(11px * var(--ui-scale));
+  color: var(--text2);
+  margin-right: 3px;
+}
+/* Info on the left, the button beside it at the same 32px as the time boxes —
+   sized to its label rather than stretched into a slab across the panel. */
+.metro-export-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.metro-export .lap-action-btn {
+  flex: none;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.metro-export-info { flex: 1; min-width: 0; margin: 0; font-variant-numeric: tabular-nums; }
+
 .sound-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1480,6 +1751,153 @@ body.visual-sunset::before {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+
+/* The seventh option spans the row so the six built-ins stay a tidy grid at
+   both the three- and two-column widths. */
+.sound-opt-custom {
+  grid-column: 1 / -1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metro-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.metro-custom[hidden] { display: none; }
+
+.metro-custom-name {
+  flex: 1;
+  min-width: 0;
+  font-size: calc(12px * var(--ui-scale));
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metro-custom-note { margin: 8px 0 0; }
+
+/* ---------- Beats-per-bar stepper ---------- */
+.metro-step {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 3px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, .28);
+}
+
+.light .metro-step { background: rgba(18, 18, 40, .1); }
+
+.metro-step-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--t2), color var(--t2);
+}
+
+.metro-step-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.metro-step-btn:disabled { opacity: .3; cursor: not-allowed; }
+
+.metro-step-val {
+  min-width: 26px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Time signature picker under the dial ----------
+   In metronome mode the "4/4" caption is a button; this is what it opens. */
+.mode-metronome .time-label {
+  cursor: pointer;
+  opacity: .75;
+  padding: 3px 6px 3px 10px;
+  border-radius: 6px;
+  transition: opacity var(--t2), background-color var(--t2);
+}
+
+.mode-metronome .time-label::after {
+  content: '▾';
+  display: inline-block;
+  margin-left: 2px;
+  letter-spacing: 0;
+  opacity: .7;
+}
+
+.mode-metronome .time-label:hover,
+.mode-metronome .time-label[aria-expanded="true"] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.sig-pop {
+  position: absolute;
+  top: 72%;   /* clear of the tempo name, so the picker never hides it */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 94%, var(--bg));
+  box-shadow: 0 14px 34px -10px rgba(0, 0, 0, .55);
+  animation: sigPopIn .18s var(--e-out);
+}
+
+.sig-pop[hidden] { display: none; }
+
+@keyframes sigPopIn {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.sig-opt, .sig-more {
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--t2), color var(--t2);
+}
+
+.sig-opt {
+  min-width: 44px;
+  padding: 7px 6px;
+  font-family: var(--font-mono);
+  font-size: calc(13px * var(--ui-scale));
+  font-weight: 600;
+}
+
+.sig-opt:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.sig-opt.active { background: var(--accent); color: #fff; }
+
+.sig-more {
+  grid-column: 1 / -1;
+  padding: 6px;
+  font-size: calc(11px * var(--ui-scale));
+  color: var(--text2);
+}
+
+.sig-more:hover { color: var(--text); }
 
 /* ========== CUSTOM COLOR & FONT PICKER ========== */
 .color-picker-input {
@@ -1896,13 +2314,28 @@ body.fullscreen {
   max-width: none;
 }
 
-/* Top bar and mode switcher are gone entirely — the only chrome is the exit
-   button in the corner. */
+/* Top bar and mode switcher are gone — the only chrome is the exit button in
+   the corner. They fade rather than display:none so entering doesn't pop them
+   while the dial is still gliding; visibility follows once the fade is done,
+   which also takes them out of the tab order and hit-testing.
+   The tabs sit inside .main, which is centred on its own box here, so they're
+   lifted out of flow (hung above it) or the dial would centre off by their
+   height. enterFS() slides them along with the dial as they fade. */
 .fullscreen .top-bar,
 .fullscreen .mode-tabs,
 .fullscreen.ready .top-bar,
 .fullscreen.ready .mode-tabs {
-  display: none !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--t3) var(--e-out), visibility 0s linear var(--t3);
+}
+
+.fullscreen .mode-tabs {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  translate: -50% 0;
 }
 
 .fullscreen .main,
@@ -1937,8 +2370,16 @@ body.fullscreen {
   font-size: calc(13vmin * var(--clock-scale));
 }
 
-.fullscreen .time .ms {
-  font-size: calc(8vmin * var(--clock-scale));
+/* A ratio of the parent, not vmin: the parent's font-size is what transitions,
+   and an em size rides along with it (the ratio itself eases via --ms-em). As
+   8vmin the hundredths had no transition and snapped to full size on frame one
+   while the main digits were still growing. Same end sizes: 8/20 and 8/13. */
+.fullscreen .time {
+  --ms-em: 0.4;
+}
+
+.fullscreen .time.long {
+  --ms-em: calc(8 / 13);
 }
 
 .fullscreen .controls {
@@ -1965,6 +2406,20 @@ body.fullscreen {
   display: none !important;
 }
 
+/* .main is fixed and centred with a transform here, so a quote opening inside
+   it would push the dial up by half the quote's height. Hang it below the
+   controls instead, out of the flow, and the dial doesn't move. */
+.fullscreen .quote-container {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: min(400px, 90vw);
+  margin-top: var(--s5);
+  transform: translateX(-50%) translateY(12px);
+}
+
+.fullscreen .quote-container.show { transform: translateX(-50%); }
+
 .fullscreen .ambient-bar {
   opacity: 0;
   transition: opacity var(--t3) var(--ease);
@@ -1983,17 +2438,12 @@ body.fullscreen {
    of position:fixed back into flow (an un-animatable teleport) in the same frame
    the chrome pops back at full opacity.
 
-   So the exit is a FLIP instead. The dial is put at its final size and flow
-   position immediately — hence the suppressed transitions below, which also let
-   JS measure the settled geometry — and the whole wrap is then transformed back
-   to where it was on screen and released. One continuous motion, no jump. */
-.fs-out .dial,
-.fs-out .time,
-.fs-out .ring-svg,
-.fs-out #bloom {
-  transition: none !important;
-}
-
+   So the exit is a FLIP on position only, the mirror of entering: the dial,
+   readout, ring and bloom run their own size transitions back down exactly as
+   they ran up, and the wrap is translated from where the dial was on screen
+   and released. (It used to snap everything to desk size and scale the wrap
+   instead — which shrank the readout from its 20vmin fullscreen size to the
+   dial's ratio in one frame, since scaling can't tell type from face.) */
 .fs-out .dial-wrap {
   will-change: transform;
   transform-origin: 50% 50%;
@@ -2267,10 +2717,21 @@ body.fullscreen {
 .visual-sunset .ring-head { fill: #ffd9a0; filter: drop-shadow(0 0 7px #ff8f3c); }
 
 .visual-sunset .mode-tabs,
-.visual-sunset .ctrl-btn,
-.visual-sunset .ambient-bar {
+.visual-sunset .ctrl-btn {
   background: rgba(30, 8, 24, 0.5);
   border-color: rgba(255, 180, 120, 0.2);
+}
+
+/* .quote-text is var(--text2) everywhere -- a flat grey that reads fine on
+   every other theme's solid surface, but the quote box has no background of
+   its own and sits at a fixed bottom:100px, which for this theme is always
+   over the brightest part of the gradient (the sun itself). Grey-on-#ffa14a
+   measures 1.7:1. Same dark plate colour the dial/mode-tabs already use
+   above, solid instead of translucent: ~9.5:1 against the
+   gradient's lit end, and it stays the one colour this theme uses for "ink on
+   the glow" everywhere else. */
+.visual-sunset .quote-text {
+  color: #1e0818;
 }
 
 /* ---------- Neon — bar sign after midnight. Hollow tube type. ---------- */
@@ -2310,8 +2771,7 @@ body.fullscreen {
 
 .visual-neon .ctrl-btn,
 .visual-neon .icon-btn,
-.visual-neon .mode-tabs,
-.visual-neon .ambient-bar {
+.visual-neon .mode-tabs {
   background: transparent;
   border-color: var(--accent);
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 50%, transparent);
@@ -2356,6 +2816,8 @@ body.fullscreen {
 .visual-glass .ctrl-btn,
 .visual-glass .icon-btn,
 .visual-glass .analytics-mini,
+.visual-glass .tag-card,
+.visual-glass .quote-card,
 .visual-glass .laps-stats,
 .visual-glass .lap-item,
 .visual-glass .preset-btn,
@@ -2427,8 +2889,7 @@ body.fullscreen {
 
 .visual-retro .mode-tabs,
 .visual-retro .ctrl-btn,
-.visual-retro .icon-btn,
-.visual-retro .ambient-bar {
+.visual-retro .icon-btn {
   background: #4a4f42;
   border-color: #2c2f26;
   color: #d7e0c6;
@@ -3428,10 +3889,84 @@ body.has-bg #bgMedia { opacity: 1; }
   transition: opacity var(--t3) var(--e-out);
 }
 
+/* ========== WINDOW EFFECTS ==========
+   Three more full-bleed layers, siblings of #bgMedia rather than children of
+   it — bgReset() does host.innerHTML='' on every background swap, which would
+   delete these on the spot if they lived inside. Same z-index as #bgMedia, so
+   plain document order (media, then duotone, then vignette, then grain) is
+   what stacks them correctly, on top of the media and under everything else
+   the app draws. */
+/* All three are display:none until their effect is actually on (body classes
+   from syncBgFxClasses in chronos.js). A full-screen layer at 0% opacity still
+   costs the compositor a surface, and the grain layer's blend mode makes the
+   browser isolate everything beneath it into one group — which then has to be
+   re-blended whenever anything above it repaints, like the dial does the
+   instant play is pressed. Backgrounds with no grain now carry none of that. */
+#bgDuotone, #bgVignette, #bgGrain {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t2) var(--e-out);
+}
+
+body.has-bg.bg-duotone #bgDuotone {
+  display: block;
+  opacity: .55;
+  background: var(--accent);
+  mix-blend-mode: color;
+}
+
+body.has-bg.bg-vignette #bgVignette {
+  display: block;
+  opacity: var(--bg-vignette, 0);
+  background: radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,.85) 115%);
+}
+
+/* Procedural, not an asset — feTurbulence piped through a saturate(0) matrix
+   so the noise reads as grain rather than as static-with-colour-fringing. */
+body.has-bg.bg-grain #bgGrain {
+  display: block;
+  opacity: var(--bg-grain, 0);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: overlay;
+}
+
+.bgfx-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* var(--sol-card), same as .analytics-mini/.tag-card below — not a second
+   guess at "looks about as opaque". Two earlier passes both missed: 74% was
+   too see-through, and the next attempt (color-mix 80% card + 5% accent,
+   copied from a card rule this file had already moved on from) went the
+   other way and made the dial a much heavier, more solid-looking surface
+   than the barely-tinted 6%-white cards actually are — those read as solid
+   mainly because of the 18px blur smoothing the photo behind them, not
+   because of the fill's opacity. Reusing their actual token is what makes
+   the dial the same material instead of a third, different guess at it.
+   Several visual themes go fully solid instead (search
+   `.has-bg .dial { background: var(--card) }`) — that's a deliberate
+   per-theme choice, not the base look. */
+/* Blur stays independent of the cards' 18px even though the fill now
+   matches theirs: 18px was tuned for a card maybe 200px across, and at 6%
+   tint that's enough to melt whatever's behind it into a flat wash. The
+   dial is 300px+ across the middle of the photo, so the same radius only
+   half-abstracts it — recognisable shapes survive as a soft smear, which
+   reads as "out of focus" rather than "frosted". A properly large radius
+   fully dissolves it into a colour field instead, matching what the small
+   blur already achieves on the cards by covering less of the image to
+   begin with. */
 body.has-bg .dial {
-  background: color-mix(in srgb, var(--card) 74%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--sol-card);
+  backdrop-filter: blur(42px);
+  -webkit-backdrop-filter: blur(42px);
 }
 
 body.has-bg .analytics-mini,
@@ -4054,8 +4589,8 @@ body {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -4063,7 +4598,18 @@ body {
   opacity: .9;
 }
 
-.sec-ico svg { width: 14px; height: 14px; }.row-ico {
+/* Was 14px — visibly smaller and, since stroke-width lives in the SVG's own
+   24x24 viewBox, proportionally thinner too — than every other icon in the
+   app, despite sitting next to the most prominent text in the settings
+   panel (the section headings). Matched to .row-ico's actual size rather
+   than picked freshly, so the whole panel reads as one icon weight instead
+   of section headers being the one place it quietly thins out. The colour
+   stays --accent, not --text — these are meant to read as landmarks you
+   scan for, which is a real hierarchy difference from the row icons, not an
+   inconsistency to flatten away. */
+.sec-ico svg { width: 19px; height: 19px; }
+
+.row-ico {
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -4489,6 +5035,12 @@ body {
 /* margin-bottom:0 above lets consecutive rows stack flush, but it also strips
    the gap from the last one, leaving it welded to the panel's bottom edge. */
 .sel-inner > .setting-row:last-child { margin-bottom: 12px; }
+/* The flush stack above was only ever exercised by one row at a time (Accent
+   colour's Custom colour, Window Effects' Duotone) — never noticeable as a
+   design choice because there was nothing for it to visually merge WITH.
+   Reduce Glow's four rows are the first case of several in a row, and flush
+   there just reads as one welded card instead of a short list of settings. */
+.sel-inner > .setting-row + .setting-row { margin-top: 12px; }
 
 /* ========== DEPENDENT SETTING GROUPS ==========
    Sub-settings that only make sense while their parent toggle is on. Same
@@ -4538,6 +5090,230 @@ body {
   min-height: 0;
   overflow: hidden;
 }
+
+/* ========== PANEL ALIGNMENT ==========
+   A pass over the settings panel for things that sat a few pixels off from
+   each other. Each rule says what it was fixing. */
+
+/* Side insets. The scrollbar took its width out of .panel-content's right
+   side, so cards sat 22px from the panel's left edge but 22px + scrollbar
+   from the right — off-centre, and out of line with the close button above
+   them. --sbw is measured in chronos.js; the gutter is reserved permanently
+   so that number holds whether or not the panel is tall enough to scroll at
+   that moment (all sections start shut, so at first it often isn't). */
+.panel-content {
+  scrollbar-gutter: stable;
+  padding-right: max(0px, calc(22px - var(--sbw, 0px)));
+}
+
+/* Slider rows. .slider is flex:1, but a range input's automatic minimum width
+   is its default ~129px, so it never gave any back — inside the Window
+   Effects card, which is 24px narrower than a top-level row, the value column
+   was pushed out past the row's right edge. */
+.slider-row .slider { min-width: 0; }
+.slider-row label { flex-shrink: 0; }
+.slider-row .slider-val { flex: none; }
+
+/* Section rhythm. Rows drop their 10px tail on :last-child, but grids, notes
+   and button rows keep it — as do sections whose last child is hidden (the
+   custom font field, the raw-data view) — so the gap above a heading
+   alternated between 24px and 34px depending on what the section happened to
+   end on. Every section now ends on the same 10px tail. */
+.sec-body > div > .setting-row:last-child,
+.sec-body > div > .slider-row:last-child,
+.sec-body > div > .shortcut-row:last-child,
+.sec-body > div > .dep.open:last-child { margin-bottom: 10px; }
+
+/* Colour dots. Fixed-size items in five 1fr cells hugged the left of each
+   cell, leaving ~10px on the left of the row and ~21px on the right. Auto
+   columns spread to the row's edges instead, so the outer dots line up with
+   the Custom colour card underneath. */
+.color-grid {
+  grid-template-columns: repeat(5, max-content);
+  justify-content: space-between;
+}
+
+/* "Reset Effects" sat flush against the card above it (that row zeroes its
+   bottom margin so consecutive rows stack) and, alone in its card, shrank to
+   its label while every other panel button fills its row. */
+.sel-inner > .setting-row + .panel-btn { margin-top: 12px; }
+#bgFxResetBtn { display: block; width: calc(100% - 24px); }
+
+/* Controls in a row. A text input is ~37px tall against a 26px toggle, so any
+   row holding one stood 7px taller than its neighbours. (The Rounds field
+   also carried an inline width that left it 20px narrower than the time
+   fields; that's gone from the markup.) */
+.setting-row > .time-input { height: 26px; padding-block: 0; }
+
+/* Text column. Order rows put their text 12px in; every other card in the
+   panel uses 14px. */
+.order-row { padding: 8px 14px; }
+
+/* Notes and captions were inset 2px from the cards and headings around them,
+   so their text sat a hair off the edge everything else lines up on. Scoped
+   to column level — inside a card (.sel-inner) the 12px inset is deliberate. */
+.sec-body > div > .sub-note,
+.dep-in > .sub-note { margin-left: 0; margin-right: 0; }
+.panel-tier { margin-left: 0; margin-right: 0; }
+.setting-row:has(> .setting-label:only-child) { padding-left: 0; padding-right: 0; }
+
+/* Block captions. "Filters", "Effects" and "Top Bar Order" were plain small
+   notes while the other captions in the panel (Display Font, Click Sound) are
+   tracked caps — same job, two looks. */
+.sub-note.sub-cap {
+  font-size: calc(11px * var(--ui-scale));
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  opacity: .55;
+  margin: 16px 0 8px;
+}
+.sel-inner > .sub-note.sub-cap { margin: 4px 12px 8px; }
+
+/* Quote list. It scrolls on its own, and its scrollbar lane (an arrowed stock
+   one) made the cards narrower than the fields underneath them. Framed as a
+   well instead: the well is full width so its edges line up with the fields,
+   and the lane sits inside it. */
+.quotes-list {
+  padding: 8px max(0px, calc(8px - var(--sbw, 0px))) 0 8px;
+  border-radius: 14px;
+  background: var(--sol-subtle);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+/* ========== SAVED PRESETS ==========
+   Each saved preset is a .setting-row, so the card, radius, gap and hover come
+   from the same rules as every row around it; only the inside is new. */
+.preset-list { margin-bottom: 10px; }
+.preset-list:empty { display: none; }
+
+.setting-row.upreset {
+  padding: 6px 8px 6px 6px;
+  gap: 6px;
+  /* The shared row transition has no box-shadow, so the .active outline
+     below would snap on while its background fades in alongside it. */
+  transition: background var(--t2) var(--sol-out), transform var(--t2) var(--sol-out), box-shadow var(--t2) var(--sol-out);
+}
+
+.upreset-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.upreset-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2);
+}
+
+.upreset-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+.upreset-name {
+  font-size: calc(14px * var(--ui-scale));
+  font-weight: 600;
+  letter-spacing: -.3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upreset-meta {
+  font-size: calc(10px * var(--ui-scale));
+  font-weight: 500;
+  opacity: .55;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upreset-tag {
+  display: none;
+  flex: none;
+  font-size: calc(10px * var(--ui-scale));
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.setting-row.upreset.active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--sol-card));
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.upreset.active .upreset-tag { display: block; }
+
+.upreset-btn {
+  flex: none;
+  padding: 7px 11px;
+  border: none;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  font: inherit;
+  font-size: calc(11px * var(--ui-scale));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--sol-micro) ease, color var(--sol-micro) ease, opacity var(--sol-micro) ease;
+}
+
+.light .upreset-btn { background: rgba(18, 18, 40, .07); color: var(--text); }
+.upreset-btn:not(:disabled):hover { background: color-mix(in srgb, var(--text) 18%, transparent); color: var(--text); }
+.upreset-btn:disabled { opacity: .35; cursor: default; }
+
+.setting-row.upreset .quote-del-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+}
+
+/* What just happened, and a way to take it back — hides itself after a while. */
+.preset-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--sol-subtle);
+  font-size: calc(11px * var(--ui-scale));
+  line-height: 1.4;
+}
+
+.preset-note[hidden], .preset-undo[hidden] { display: none; }
+
+.preset-undo {
+  flex: none;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.preset-undo:hover { text-decoration: underline; }
 
 /* ---------- Uniformity: the app outside the panel, on the same tokens ----------
    Their whole site runs one language — a glass shell, --card-bg rows, --subtle-bg
@@ -4617,16 +5393,22 @@ body {
   background: rgba(18, 18, 40, .04);
 }
 
+/* The sound bar is the same material as the cards above it. --sol-glass and
+   --sol-shadow (a near-opaque, bg-coloured fill with a bright top rim) are
+   the settings PANEL's surface; used here they made the bar a dark, solid
+   pill sitting among frosted cards, and it stood out most over a background
+   or after switching visual theme. Only its shape stays its own. The themes
+   that restyle the cards add the bar to those same rules. */
 .ambient-bar {
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 99px;
-  background: var(--sol-glass);
+  background: var(--sol-card);
   backdrop-filter: var(--blur-chrome);
   -webkit-backdrop-filter: var(--blur-chrome);
-  box-shadow: var(--sol-shadow);
+  box-shadow: none;
 }
 
-.light .ambient-bar { border-color: rgba(18, 18, 40, .08); }
+.light .ambient-bar { border-color: rgba(18, 18, 40, .08); background: rgba(18, 18, 40, .04); }
 
 .amb-btn, .preset-btn {
   border: none;
@@ -4747,7 +5529,15 @@ body {
     border-width: 0 0 0 1px;
     transform: translateX(100%);
   }
-  .panel.active { transform: translateX(0); }
+  /* The floating-glass redesign's .panel.active also sets `right: 20px` at
+     the same 0,2,0 specificity — restating it here wins only because this
+     rule comes later in the sheet. Without it, this breakpoint's own
+     `right: 0` above (plain .panel, 0,1,0) loses to that 20px on the exact
+     element that always carries .active while open, and the panel sits
+     20px short of the right edge with its left edge shoved off-screen to
+     compensate — which is what was clipping content pinned to the right of
+     each row (slider values included). */
+  .panel.active { transform: translateX(0); right: 0; }
   .theme-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
@@ -4827,7 +5617,7 @@ body {
   .quote-text { font-size: calc(14px * var(--ui-scale)); }
 }
 
-/* .ambient-bar and .quote-container are position:fixed against the viewport
+/* .ambient-bar is position:fixed against the viewport
    (see their own rules), independent of how tall the flow content above them
    happens to be. Nothing sized the dial against the vertical space left over,
    so on any short-but-wide viewport -- a plain 1280x720 window, not an edge
@@ -4840,11 +5630,11 @@ body {
 
 /* Same fixed-vs-flow collision as above, but worse: below 1100px the layout
    drops to a single stacked column (see STAGE), so the rail/dial/controls
-   run gets tall enough that the fixed ambient bar and quote box land on top
-   of whatever rail is still in view. On a phone that's the Today card, the
-   quote and the sound icons all rendering over each other at once. Letting
-   both sit in normal flow instead means the page scrolls past them like
-   everything else. Fullscreen keeps its own fixed choreography (see
+   run gets tall enough that the fixed ambient bar lands on top of whatever
+   rail is still in view. On a phone that's the Today card and the sound icons
+   rendering over each other at once. Letting it sit in normal flow instead
+   means the page scrolls past it like everything else. (The quote box is in
+   the flow at every width now, so it needs nothing here.) Fullscreen keeps its own fixed choreography (see
    FULLSCREEN MODE below) and is excluded. */
 @media (max-width: 1099px) {
   body:not(.fullscreen) .ambient-bar {
@@ -4854,15 +5644,6 @@ body {
     margin: var(--s5) auto 0;
   }
 
-  body:not(.fullscreen) .quote-container {
-    position: static;
-    transform: none;
-    margin: var(--s5) auto var(--s6);
-  }
-
-  body:not(.fullscreen) .quote-container.show {
-    transform: none;
-  }
 }
 
 /* ========== INTERACTION STATES ==========
@@ -4891,13 +5672,33 @@ body {
 
 /* Light/dark flip. Colour transitions across this sheet run anywhere from .18s
    to .7s, so a theme swap retints in visible waves. For the length of the flip
-   only, force one duration and one curve across every element. */
-body.theme-swap, body.theme-swap *, body.theme-swap *::before, body.theme-swap *::after {
-  transition-property: background-color, border-color, color, box-shadow, fill, stroke, background,
-                        outline-color, --bg, --card, --border, --text, --text2, --edge !important;
+   only, force one duration and one curve across every element.
+
+   What's left OUT of the per-element list matters as much as what's in it.
+   The six colour tokens are animated once, on body (top of the sheet), and
+   every descendant inherits the interpolated value — no element needs its own.
+   Inherited properties (color, fill, stroke) are the same story: a parent
+   mid-transition hands its in-between value down, but any child that also
+   lists the property starts a duplicate transition of its own, all the way
+   down the tree. Listing either on `*` put 8,000+ transitions in flight and
+   cost 70–90ms a frame, which is what made the flip stutter under
+   Motion: Full. Without them it's ~370 transitions and ~20ms frames. */
+body.theme-swap *, body.theme-swap *::before, body.theme-swap *::after {
+  transition-property: background-color, border-color, box-shadow, background, outline-color !important;
   transition-duration: var(--t3) !important;
   transition-timing-function: var(--e-out) !important;
   transition-delay: 0s !important;
+}
+body.theme-swap {
+  transition-property: background-color, --bg, --card, --border, --text, --text2, --edge !important;
+  transition-duration: var(--t3) !important;
+  transition-timing-function: var(--e-out) !important;
+  transition-delay: 0s !important;
+}
+/* The few controls whose light-mode text colour is a literal rather than a
+   token would snap without this. Their children inherit the fade for free. */
+body.theme-swap :is(button, [class*="-opt"], .icon) {
+  transition-property: background-color, border-color, box-shadow, background, outline-color, color !important;
 }
 
 /* ========== REDUCED MOTION ==========
@@ -4919,8 +5720,114 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
     transition-duration: 0.001ms !important;
   }
 
-  [data-reveal] { opacity: 1 !important; transform: none !important; }
+  /* Scoped like the block above. Unscoped, Motion: Full still had every
+     revealed element's transform pinned to none — which includes .dial-wrap,
+     so the fullscreen enter/exit FLIPs silently did nothing under an OS
+     reduced-motion setting even with Full chosen. */
+  body:not(.motion-full) [data-reveal] { opacity: 1 !important; transform: none !important; }
   #boot { display: none !important; }
+
+  /* The line above would pin the faded-out fullscreen chrome back to full
+     opacity. Nothing animates here anyway, so just remove it outright. */
+  body.fullscreen:not(.motion-full) .top-bar,
+  body.fullscreen:not(.motion-full) .mode-tabs { display: none !important; }
+}
+
+@media all {
+  body.fullscreen.motion-none .top-bar,
+  body.fullscreen.motion-none .mode-tabs { display: none !important; }
+}
+
+
+/* ========== REDUCED GLOW ==========
+   Four classes, one per row in Settings (plus Reduce Glow itself, which never
+   appears here — it's folded into these four by syncGlowClasses() in
+   chronos.js rather than getting a parallel set of rules, so every selector
+   below only has to check one class regardless of which toggle, or the
+   master, put it there).
+
+   Neon is exempted everywhere: its whole palette — the dial, the readout,
+   the buttons, the ring — is built as a glow, not decorated with one, so
+   there's nothing to fall back to. Selecting the theme is the opt-in.
+
+   Two more exemptions exist for a narrower reason — not "this theme is about
+   glow" but "this property is doing something else here": Vivaldi's signature
+   repurposes the ring's `filter` for hue-rotation, not shadow, and Retro's
+   `.time` text-shadow is a solid 1px emboss with no blur at all, i.e. not a
+   glow to begin with. `!important` is what makes a single unthemed rule here
+   reach into every visual theme's own overrides without chasing each one's
+   specificity by hand — same tool .motion-none already uses above for the
+   same reason. */
+
+/* Dial Glow — the halo (#bloom) and the accent edge-light on the dial itself
+   (--glow, also used by the default theme's own "signature" bloom). Redefining
+   the token rather than overriding .dial's box-shadow directly means --lift,
+   the dial's base elevation, survives untouched. */
+body.no-dial-glow:not(.visual-neon) {
+  --glow: 0 0 0 0 transparent;
+}
+body.no-dial-glow #bloom {
+  display: none !important;
+}
+/* The accent-tinted highlight on the default dial face. :where() keeps this at
+   .dial's own specificity, so it only flattens the base sheen — every theme's
+   dial (.visual-x .dial) and the glass dial over a custom background
+   (body.has-bg .dial) still outrank it and keep their own faces. */
+:where(body.no-dial-glow:not(.visual-neon)) .dial {
+  background: var(--card);
+}
+
+/* Background Glow — everything that stops the page reading as one flat colour:
+   the accent wash (body::before, defined up top near the other base layers)
+   and #vignette, which darkens the edges so the middle looks lit. Off means a
+   plain solid --bg. Separate from Dial Glow because none of it is confined to
+   the dial. */
+body.no-bg-glow:not(.visual-neon)::before {
+  background: none !important;
+}
+body.no-bg-glow:not(.visual-neon) #vignette {
+  display: none !important;
+}
+
+/* Ring Glow — the progress arc's glow while running, and the head dot's own
+   glow, which is permanent rather than running-gated (so this can't reuse
+   --glow the way Dial Glow does; there's no single token both draw from). */
+body.no-ring-glow:not(.visual-neon):not(.visual-vivaldi.signature).running .ring-progress,
+body.no-ring-glow:not(.visual-neon):not(.visual-vivaldi.signature) .ring-head {
+  filter: none !important;
+}
+
+/* Readout Glow — the digits' own text-shadow, on whichever theme sets it,
+   running or idle (Matrix's phosphor bleed, for one, is always on). */
+body.no-readout-glow:not(.visual-neon):not(.visual-retro) .time {
+  text-shadow: none !important;
+}
+
+/* Button Glow — the primary button's running pulse AND its permanent resting
+   and hover shadow (an accent-blurred layer stacked onto --lift, on every
+   ctrl-btn, present whether or not anything is running — the most visible
+   single source of "glow" in the whole app, and the one this toggle
+   originally missed), the ambient sound bar's active glow (kept as a thin
+   ring rather than dropped outright, so "this one's playing" doesn't lose
+   its only marker), the top-bar icon buttons' hover halo, and the
+   metronome's pendulum weight and downbeat flash. */
+body.no-button-glow:not(.visual-neon).running .ctrl-btn.primary {
+  animation: none !important;
+}
+body.no-button-glow:not(.visual-neon) .ctrl-btn {
+  box-shadow: var(--lift) !important;
+}
+body.no-button-glow:not(.visual-neon) .icon-btn:hover {
+  box-shadow: none !important;
+}
+body.no-button-glow:not(.visual-neon) .ambient-btn.active {
+  box-shadow: 0 0 0 1px var(--accent) !important;
+}
+body.no-button-glow:not(.visual-neon) .metro-pendulum-bob {
+  box-shadow: none !important;
+}
+body.no-button-glow:not(.visual-neon) .metro-accent {
+  animation: none !important;
 }
 
 
@@ -5017,6 +5924,8 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
   .icon-btn { width: 42px; height: 42px; }
   .ctrl-btn { min-width: 52px; min-height: 52px; }
   .chip, .lap-action-btn, .panel-btn, .seg-btn { min-height: 38px; }
+  /* The export's time boxes sit in a row with its button — they grow with it. */
+  .metro-export-dur .time-input { height: 38px; }
 
   /* The slider thumb is the one control that has to be grabbed precisely. */
   .slider { height: 26px; }
@@ -5101,6 +6010,7 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
 .visual-bahnhof .dash,
 .visual-bahnhof .analytics-mini,
 .visual-bahnhof .tag-card,
+.visual-bahnhof .ambient-bar,
 .visual-bahnhof .laps-stats,
 .visual-bahnhof .lap-item,
 .visual-bahnhof .quote-card,
@@ -5378,6 +6288,7 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
 /* Milled plates, not cards. Small radii only — 2 to 4px, never a pill. */
 .visual-paceclock .analytics-mini,
 .visual-paceclock .tag-card,
+.visual-paceclock .ambient-bar,
 .visual-paceclock .laps-stats,
 .visual-paceclock .lap-item,
 .visual-paceclock .quote-card,
@@ -5508,7 +6419,8 @@ body.motion-none, body.motion-none *, body.motion-none *::before, body.motion-no
 /* The device sits on top of the user's photo like an object on a desk. */
 .visual-paceclock.has-bg .dial,
 .visual-paceclock.has-bg .analytics-mini,
-.visual-paceclock.has-bg .tag-card {
+.visual-paceclock.has-bg .tag-card,
+.visual-paceclock.has-bg .ambient-bar {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
@@ -5730,6 +6642,29 @@ body.theme-swap .dial {
     font-size: calc(12px * var(--ui-scale));
     flex: 0 0 auto;
   }
+}
+
+/* Same shape of problem as the mode-tabs row above, on the icon row on the
+   opposite side of the header: six 40px icon-btns plus their gaps don't fit
+   next to the wordmark under ~380px, .top-bar has no wrap and no overflow
+   handling, and a flex item's default min-width:auto refuses to let it
+   shrink below that -- so the row spilled past the edge of the page itself
+   rather than just the header, taking Settings (last in the row) past the
+   viewport with it. Same fix, same reasoning: the wordmark keeps its size,
+   the icon row scrolls in its own one-line box instead. */
+@media (max-width: 460px) {
+  .logo { flex-shrink: 0; }
+
+  .top-actions {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .top-actions::-webkit-scrollbar { display: none; }
 }
 
 /* ==========================================================================
@@ -6027,7 +6962,8 @@ body.theme-swap .dial {
 }
 
 .visual-gnomon.has-bg .dial,
-.visual-gnomon.has-bg .analytics-mini {
+.visual-gnomon.has-bg .analytics-mini,
+.visual-gnomon.has-bg .ambient-bar {
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -6104,6 +7040,7 @@ body.theme-swap .dial {
 .visual-vane .analytics-mini,
 .visual-vane .laps-stats,
 .visual-vane .tag-card,
+.visual-vane .ambient-bar,
 .visual-vane .quote-card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -6274,14 +7211,14 @@ body.theme-swap .dial {
    One continuous graph sheet under the whole app, framed like an instrument
    panel, with a literal stylus arm hanging into the dial from twelve o'clock. */
 .visual-kymograph {
-  --bg: #E6E9E0;
-  --card: #DDE1D6;
-  --border: #B7BDAF;
-  --text: #141F1C;
-  --text2: #5C6B62;
-  --accent: #B4245A;
+  --bg: #131A18;
+  --card: #182120;
+  --border: #2C3A36;
+  --text: #DCE5E0;
+  --text2: #7C8B82;
+  --accent: #E8497F;
   --accent2: #5C6B62;
-  --edge: rgba(20, 31, 28, .05);
+  --edge: rgba(220, 229, 224, .05);
   --font-ui: 'Libre Franklin', system-ui, sans-serif;
   --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
   --font-display: 'Spline Sans Mono', ui-monospace, monospace;
@@ -6294,13 +7231,13 @@ body.theme-swap .dial {
 }
 
 .visual-kymograph.light {
-  --bg: #131A18;
-  --card: #182120;
-  --border: #2C3A36;
-  --text: #DCE5E0;
-  --text2: #7C8B82;
-  --accent: #E8497F;
-  --edge: rgba(220, 229, 224, .05);
+  --bg: #E6E9E0;
+  --card: #DDE1D6;
+  --border: #B7BDAF;
+  --text: #141F1C;
+  --text2: #5C6B62;
+  --accent: #B4245A;
+  --edge: rgba(20, 31, 28, .05);
 }
 
 /* One continuous sheet. Fixed attachment anchors the grid to the viewport
@@ -6378,6 +7315,7 @@ body.visual-kymograph {
 .visual-kymograph .analytics-mini,
 .visual-kymograph .laps-stats,
 .visual-kymograph .tag-card,
+.visual-kymograph .ambient-bar,
 .visual-kymograph .quote-card {
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   border: 1px solid var(--text);
@@ -6514,7 +7452,8 @@ body.visual-kymograph {
    nothing else sits on top of it. */
 .visual-kymograph.has-bg .dial,
 .visual-kymograph.has-bg .analytics-mini,
-.visual-kymograph.has-bg .tag-card {
+.visual-kymograph.has-bg .tag-card,
+.visual-kymograph.has-bg .ambient-bar {
   background: var(--bg);
 }
 
@@ -6610,10 +7549,10 @@ body.visual-kymograph {
 }
 .sw-kymograph {
   background:
-    linear-gradient(28deg, transparent 44%, #B4245A 44% 56%, transparent 56%),
-    repeating-linear-gradient(90deg, #B7BDAF 0 1px, transparent 1px 5px),
-    repeating-linear-gradient(0deg, #B7BDAF 0 1px, transparent 1px 5px),
-    #E6E9E0;
+    linear-gradient(28deg, transparent 44%, #E8497F 44% 56%, transparent 56%),
+    repeating-linear-gradient(90deg, #2C3A36 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(0deg, #2C3A36 0 1px, transparent 1px 5px),
+    #131A18;
 }
 
 /* ==========================================================================
@@ -6633,16 +7572,27 @@ body.visual-kymograph {
 }
 
 /* ---------- Pendulum ----------
-   A small ornament perched at the top of the dial rather than a full arm
-   drawn across the face — the face already carries the BPM number and the
-   time-signature label, and a pendulum long enough to read as "classic"
-   would cross straight through both. Pivoting from a fixed point just above
-   the ring and swinging a short arc keeps it legible without colliding with
-   anything else on the dial. */
+   Second pass at this. The first version had two real problems, not just a
+   scale/taste issue: a 2px-wide bar rotated off-axis with a fade-to-transparent
+   gradient is a known way to get visible banding on a rotated edge — thin plus
+   rotated plus a gradient stop is exactly the combination that renders as a
+   broken, dashed-looking line instead of a clean stroke. And the bob was
+   positioned 6px shy of the arm's own tip, leaving a stub of shaft poking out
+   past it — a real pendulum's weight sits at the very end, not partway up
+   with a tail hanging below.
+
+   Both fixed here: a thicker, solid-colour arm (no gradient, no aliasing risk),
+   the bob centred exactly on the arm's tip, and a visible pivot — a small
+   fixed dot the arm actually hangs from, since nothing was selling "this is
+   mounted to something" before. It also now has a genuine rest state: hanging
+   straight down at 0deg when stopped, swinging symmetrically past vertical on
+   both sides while running, rather than parking at one of its own swing
+   extremes the moment it stops — which is what made it look tilted and
+   accidental sitting still. */
 .metro-pendulum {
   display: none;
   position: absolute;
-  top: -2px;
+  top: 4px;
   left: 50%;
   width: 0;
   height: 0;
@@ -6652,29 +7602,46 @@ body.visual-kymograph {
 
 .mode-metronome .metro-pendulum { display: block; }
 
+/* The mount. Doesn't rotate — it's what the arm hangs from, not part of the
+   swing — so it lives on this outer, static anchor rather than inside the
+   rotating arm. Deliberately quiet (a tint of --text, not the accent) so the
+   bob stays the one thing the eye follows. */
+.metro-pendulum::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 55%, transparent);
+  transform: translateX(-50%);
+}
+
 .metro-pendulum-arm {
   position: absolute;
-  left: -1px;
+  left: -1.5px;
   top: 0;
-  width: 2px;
-  height: 34px;
-  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 40%, transparent));
+  width: 3px;
+  height: 50px;
+  background: var(--accent);
   border-radius: 2px;
   transform-origin: top center;
-  transform: rotate(-20deg);
+  transform: rotate(0deg);
   /* --beat-ms is written by updateUI() from the live BPM every time it
      changes, so the swing always takes exactly one beat regardless of tempo. */
   transition: transform var(--beat-ms, 500ms) cubic-bezier(.45, 0, .55, 1);
 }
 
-.metro-pendulum.swing-right .metro-pendulum-arm { transform: rotate(20deg); }
+.metro-pendulum.swing-left .metro-pendulum-arm { transform: rotate(-24deg); }
+.metro-pendulum.swing-right .metro-pendulum-arm { transform: rotate(24deg); }
 
 .metro-pendulum-bob {
   position: absolute;
   left: 50%;
-  bottom: 6px;
-  width: 8px;
-  height: 8px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--accent);
   transform: translateX(-50%);
@@ -6722,11 +7689,21 @@ body.visual-kymograph {
    plain background swap on the active button, which is correct at any item
    count. */
 #metroSubSeg::before { content: none; }
+#metroBeatNoteSeg::before { content: none; }   /* four items, same reason */
 
-#metroSubSeg .seg-btn.is-active {
+#metroSubSeg .seg-btn.is-active,
+#metroBeatNoteSeg .seg-btn.is-active {
   background: var(--accent);
   color: #fff;
   border-radius: 99px;
+}
+
+/* Same convention as .clock-opt.disabled — dimmed and not-allowed, not
+   hidden, so the option (and the reason it's unavailable right now) stays
+   discoverable rather than just missing. */
+#metroSubSeg .seg-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 /* ---------- Metronome presets (right rail) ----------
@@ -6852,12 +7829,76 @@ body.mode-metronome.visual-kymograph #lapBtn::after {
   background: color-mix(in srgb, var(--text) 3%, transparent);
 }
 
-.visual-gnomon .ambient-bar,
-.visual-kymograph .ambient-bar {
+/* Gnomon's cards are chromeless hairline rails, so its bar drops the fill and
+   keeps only the hairline (Kymograph's bar takes its cards' hard outline from
+   the rails group above instead, so it isn't listed here). */
+.visual-gnomon .ambient-bar {
   border-color: color-mix(in srgb, var(--text) 8%, transparent);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .visual-gnomon .sel-swatch,
 .visual-kymograph .sel-swatch {
   border-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+/* ========== CUSTOM BASE COLOURS OVER VISUAL THEMES ==========
+   The custom palette works by overriding the five base tokens, which is all it
+   takes for themes built on them. These themes paint the page, the dial face
+   or the readout in fixed colours instead, so turning Custom Base Colors on
+   used to change the chrome around them and leave the theme itself untouched.
+   With it on, those surfaces read the tokens too. Each theme keeps its
+   effects — glows, animations, overlays, fonts, ring styling — just in the
+   user's colours. Translucent faces stay translucent, tinted with --card. */
+body.custom-palette:is(.visual-aurora, .visual-cosmic, .visual-glass, .visual-matrix,
+                       .visual-neon, .visual-retro, .visual-safelight, .visual-sunset) {
+  background: var(--bg) !important;
+}
+
+.custom-palette:is(.visual-cosmic, .visual-matrix, .visual-retro) .dial {
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 10%, var(--card)), var(--card)) !important;
+  border-color: var(--border) !important;
+}
+
+.custom-palette:is(.visual-aurora, .visual-glass, .visual-neon, .visual-sunset) .dial {
+  background: color-mix(in srgb, var(--card) 55%, transparent) !important;
+  border-color: color-mix(in srgb, var(--border) 70%, transparent) !important;
+}
+
+.custom-palette:is(.visual-matrix, .visual-retro, .visual-sunset) .time {
+  color: var(--text) !important;
+}
+
+.custom-palette.visual-matrix .time {
+  text-shadow: 0 0 10px color-mix(in srgb, var(--text) 45%, transparent) !important;
+}
+
+.custom-palette.visual-sunset .time :is(.dg, .sep) {
+  background: none !important;
+  -webkit-text-fill-color: var(--text) !important;
+  color: var(--text) !important;
+}
+
+/* Neon's readout is an outline, not a fill — keep it one, in the text colour. */
+.custom-palette.visual-neon .time {
+  -webkit-text-stroke-color: var(--text) !important;
+}
+
+.custom-palette:is(.visual-matrix, .visual-neon, .visual-paceclock, .visual-retro) .time-label {
+  color: var(--text2) !important;
+}
+
+.custom-palette.visual-retro :is(.ctrl-btn:not(.primary), .icon-btn) {
+  background: var(--card) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* Pace Clock's light reading fixes its window dark for contrast against the
+   default palette. With a custom palette the window follows Border in both
+   readings, as dark mode already does — the user is choosing those colours. */
+.custom-palette.visual-paceclock.light .dial {
+  background: var(--border) !important;
 }
